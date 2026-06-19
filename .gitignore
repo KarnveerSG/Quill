@@ -23,4 +23,5 @@ data/
 *.db
 .quill/
 .sexyjarvis/
+node_modules/
 desktop/node_modules/

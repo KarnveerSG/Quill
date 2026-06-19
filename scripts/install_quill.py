@@ -17,6 +17,25 @@ def run(cmd: list[str], *, cwd: Path | None = None, shell: bool = False) -> None
     subprocess.run(cmd, cwd=str(cwd or ROOT), check=True, shell=shell)
 
 
+def cli_install_dir() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Quill"
+
+
+def desktop_install_dir() -> Path:
+    return Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Quill Desktop"
+
+
+def add_to_user_path(install_dir: Path) -> None:
+    target = str(install_dir)
+    ps = (
+        f"$dir = '{target}'; "
+        "$p = [Environment]::GetEnvironmentVariable('Path', 'User'); "
+        "if ($p -notlike \"*$dir*\") { "
+        "[Environment]::SetEnvironmentVariable('Path', ($p.TrimEnd(';') + ';' + $dir), 'User') }"
+    )
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], check=True)
+
+
 def migrate_env() -> None:
     legacy = Path.home() / ".sexyjarvis" / ".env"
     target_dir = Path.home() / ".quill"
@@ -41,6 +60,13 @@ def desktop_shortcut(exe: Path) -> None:
     print(f"Desktop shortcut: {desktop}")
 
 
+def copy_exe(src: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    if dest.exists():
+        dest.unlink()
+    shutil.copy2(src, dest)
+
+
 def main() -> int:
     if sys.platform != "win32":
         print("install_quill.py is Windows-focused.", file=sys.stderr)
@@ -50,32 +76,35 @@ def main() -> int:
 
     run([sys.executable, "-m", "pip", "install", "-e", ".[cursor,build,voice]"])
 
-    run([sys.executable, "scripts/build_binary.py", "--install", "--with", "cursor"])
+    # Build CLI — install manually to avoid overwriting desktop exe (same name on Windows FS)
+    run([sys.executable, "scripts/build_binary.py", "--with", "cursor"])
 
     desktop_dir = ROOT / "desktop"
     run(["npm", "install"], cwd=desktop_dir, shell=True)
     run(["npm", "run", "build:dir"], cwd=desktop_dir, shell=True)
 
-    unpacked = ROOT / "dist" / "desktop" / "win-unpacked" / "Quill.exe"
-    if not unpacked.is_file():
-        print(f"Desktop build missing: {unpacked}", file=sys.stderr)
+    cli_src = ROOT / "dist" / "quill.exe"
+    desktop_src = ROOT / "dist" / "desktop" / "win-unpacked" / "Quill.exe"
+    if not cli_src.is_file():
+        print(f"CLI build missing: {cli_src}", file=sys.stderr)
+        return 1
+    if not desktop_src.is_file():
+        print(f"Desktop build missing: {desktop_src}", file=sys.stderr)
         return 1
 
-    install_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Quill"
-    install_dir.mkdir(parents=True, exist_ok=True)
-    dest = install_dir / "Quill.exe"
-    shutil.copy2(unpacked, dest)
+    cli_dir = cli_install_dir()
+    desk_dir = desktop_install_dir()
+    cli_dest = cli_dir / "quill.exe"
+    desk_dest = desk_dir / "Quill.exe"
 
-    # Also copy quill CLI if built
-    cli_built = ROOT / "dist" / "quill.exe"
-    if cli_built.is_file():
-        shutil.copy2(cli_built, install_dir / "quill.exe")
-
-    desktop_shortcut(dest)
+    copy_exe(cli_src, cli_dest)
+    copy_exe(desktop_src, desk_dest)
+    add_to_user_path(cli_dir)
+    desktop_shortcut(desk_dest)
 
     print("\nDone.")
-    print(f"  Desktop IDE: {dest}")
-    print(f"  CLI:         {install_dir / 'quill.exe'}")
+    print(f"  Desktop IDE: {desk_dest}")
+    print(f"  CLI:         {cli_dest}")
     print("  Restart terminal, then run: quill")
     return 0
 
