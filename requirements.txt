@@ -1,0 +1,6 @@
+anthropic>=0.40.0
+rich>=13.0.0
+
+# Optional voice features (TTS + push-to-talk STT):
+# pip install edge-tts sounddevice numpy keyboard SpeechRecognition
+# or: pip install -e ".[voice]"

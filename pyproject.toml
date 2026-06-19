@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sexyjarvis"
+version = "0.1.0"
+description = "An OpenHands-style interactive terminal AI coding agent, with auto-retry and standing-instruction (CLAUDE.md) support."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "SexyJarvis" }]
+dependencies = [
+    "anthropic>=0.40.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+sexyjarvis = "sexyjarvis.cli:main"
+
+[project.optional-dependencies]
+voice = [
+    "edge-tts>=6.1.0",
+    "sounddevice>=0.4.6",
+    "numpy>=1.24.0",
+    "keyboard>=0.13.5",
+    "SpeechRecognition>=3.10.0",
+]
+cursor = ["cursor-sdk>=0.1.7"]
+build = ["shiv>=1.0.0", "pyinstaller>=6.0"]
+input = ["prompt_toolkit>=3.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sexyjarvis*"]

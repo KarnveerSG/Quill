@@ -1,0 +1,12 @@
+# SexyJarvis config — copy to config.toml in workspace or ~/.sexyjarvis/config.toml
+
+[sexyjarvis]
+provider = "auto"
+cursor_model = "auto"
+fallback_model = "claude-sonnet-4-20250514"
+rtk_enabled = true
+codegraph_enabled = true
+thinking_budget = 2048
+
+# local_base_url = "http://localhost:1234/v1"
+# local_model = "local"
