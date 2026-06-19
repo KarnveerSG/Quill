@@ -5,6 +5,8 @@ contextBridge.exposeInMainWorld("quill", {
   saveState: (state) => ipcRenderer.invoke("save-state", state),
   getEnv: () => ipcRenderer.invoke("get-env"),
   saveEnvKeys: (updates) => ipcRenderer.invoke("save-env-keys", updates),
+  pickFolder: () => ipcRenderer.invoke("pick-folder"),
+  pickWorkspaceFile: () => ipcRenderer.invoke("pick-workspace-file"),
   ptyCreate: (opts) => ipcRenderer.invoke("pty-create", opts),
   ptyWrite: (id, data) => ipcRenderer.invoke("pty-write", { id, data }),
   ptyResize: (id, cols, rows) => ipcRenderer.invoke("pty-resize", { id, cols, rows }),
@@ -12,4 +14,5 @@ contextBridge.exposeInMainWorld("quill", {
   onPtyData: (cb) => ipcRenderer.on("pty-data", (_e, payload) => cb(payload)),
   onPtyExit: (cb) => ipcRenderer.on("pty-exit", (_e, payload) => cb(payload)),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  quit: () => ipcRenderer.invoke("app-quit"),
 });

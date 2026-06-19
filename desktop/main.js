@@ -1,9 +1,10 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
 const { spawn } = require("child_process");
 const { INTEGRATIONS, SETTINGS_SECTIONS, CORE_ENV_KEYS } = require("./integrations");
+const { THEMES } = require("./themes");
 
 const PERSONAS = ["Iris", "Thea", "Nova", "Sage", "Luna", "Wren"];
 const RAINBOW = ["#FF6B6B", "#FF9F43", "#FECA57", "#1DD1A1", "#54A0FF", "#5F27CD", "#A29BFE"];
@@ -15,13 +16,12 @@ let termCounter = 0;
 function quillCliPath() {
   const candidates = [
     path.join(process.env.LOCALAPPDATA || "", "Programs", "Quill", "Quill.exe"),
-    path.join(process.env.LOCALAPPDATA || "", "Programs", "Quill", "quill.exe"),
-    path.join(__dirname, "..", "dist", "quill.exe"),
+    path.join(__dirname, "..", "dist", "Quill.exe"),
   ];
   for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
-  return "quill";
+  return "Quill";
 }
 
 function envPath() {
@@ -54,8 +54,7 @@ function parseEnvFile(filePath) {
 
 function writeEnvFile(filePath, data) {
   const lines = ["# Quill — keys saved from Settings → Integrations", ""];
-  const keys = Object.keys(data).sort();
-  for (const k of keys) {
+  for (const k of Object.keys(data).sort()) {
     if (data[k]) lines.push(`${k}=${data[k]}`);
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
@@ -63,17 +62,31 @@ function writeEnvFile(filePath, data) {
 }
 
 function integrationStatus(env, integration) {
-  const connected = integration.keys.every((k) => Boolean((env[k.env] || "").trim()));
-  return connected ? "connected" : "disconnected";
+  return integration.keys.every((k) => Boolean((env[k.env] || "").trim()))
+    ? "connected" : "disconnected";
 }
 
-function defaultWorkspaces() {
+const STATE_VERSION = 2;
+
+function defaultState() {
   const home = os.homedir();
-  return [
-    { id: "ws-1", name: "Workspace 1", color: RAINBOW[0], cwd: home, panes: 4 },
-    { id: "ws-2", name: "Workspace 2", color: RAINBOW[2], cwd: home, panes: 4 },
-    { id: "ws-3", name: "Projects", color: RAINBOW[4], cwd: home, panes: 4 },
-  ];
+  const paneId = "pane-main";
+  return {
+    stateVersion: STATE_VERSION,
+    workspaces: [{
+      id: "ws-main",
+      name: "Quill",
+      color: RAINBOW[4],
+      cwd: home,
+      folders: [home],
+      panes: 1,
+      layout: "grid-1x1",
+      paneIds: [paneId],
+    }],
+    activeWorkspace: "ws-main",
+    theme: "dark",
+    panes: { [paneId]: { persona: "Iris", mode: "agent" } },
+  };
 }
 
 function statePath() {
@@ -82,9 +95,17 @@ function statePath() {
 
 function loadState() {
   try {
-    return JSON.parse(fs.readFileSync(statePath(), "utf8"));
+    const raw = JSON.parse(fs.readFileSync(statePath(), "utf8"));
+    if (!raw.workspaces?.length || (raw.stateVersion || 1) < STATE_VERSION) {
+      const fresh = defaultState();
+      saveState(fresh);
+      return fresh;
+    }
+    return raw;
   } catch {
-    return { workspaces: defaultWorkspaces(), activeWorkspace: "ws-1", theme: "dark" };
+    const fresh = defaultState();
+    saveState(fresh);
+    return fresh;
   }
 }
 
@@ -95,12 +116,12 @@ function saveState(state) {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 960,
-    minHeight: 640,
+    width: 1280,
+    height: 860,
+    minWidth: 800,
+    minHeight: 560,
     backgroundColor: "#0d0d12",
-    title: ".quill",
+    title: "Quill",
     show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -124,27 +145,28 @@ function createWindow() {
 
 function spawnTerm(id, opts) {
   const cwd = opts.cwd || os.homedir();
-  const mode = opts.mode || "agent";
   const persona = opts.persona || "Iris";
-  const shellExe = process.env.COMSPEC || "powershell.exe";
+  const quill = quillCliPath();
+  const args = ["-w", cwd, "--no-speech"];
 
-  let cmd, args;
-  if (mode === "agent" || mode === "hybrid") {
-    cmd = quillCliPath();
-    args = ["-w", cwd];
-  } else {
-    cmd = shellExe;
-    args = ["-NoLogo", "-NoExit", "-Command", "-"];
-  }
-
-  const proc = spawn(cmd, args, {
+  const proc = spawn(quill, args, {
     cwd,
-    env: { ...process.env, TERM: "xterm-256color", QUILL_PERSONA: persona },
+    env: {
+      ...process.env,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      FORCE_COLOR: "1",
+      QUILL_PERSONA: persona,
+      QUILL_DESKTOP: "1",
+      PYTHONUNBUFFERED: "1",
+      PYTHONIOENCODING: "utf-8",
+    },
     shell: false,
     stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
   });
 
-  terminals.set(id, { proc, persona, mode, cwd });
+  terminals.set(id, { proc, persona, cwd });
 
   const emit = (data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -161,7 +183,7 @@ function spawnTerm(id, opts) {
   });
   proc.on("error", (err) => emit(`\r\n\x1b[31m${err.message}\x1b[0m\r\n`));
 
-  return { id, persona, mode };
+  return { id, persona, mode: "agent" };
 }
 
 ipcMain.handle("get-bootstrap", () => {
@@ -176,6 +198,7 @@ ipcMain.handle("get-bootstrap", () => {
     state: loadState(),
     personas: PERSONAS,
     rainbow: RAINBOW,
+    themes: THEMES,
     quillPath: quillCliPath(),
     envPath: envPath(),
     version: app.getVersion(),
@@ -186,25 +209,33 @@ ipcMain.handle("get-bootstrap", () => {
   };
 });
 
-ipcMain.handle("save-state", (_e, state) => {
-  saveState(state);
-  return true;
+ipcMain.handle("save-state", (_e, state) => { saveState(state); return true; });
+ipcMain.handle("pick-folder", async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openDirectory"],
+    title: "Select Folder",
+  });
+  if (r.canceled || !r.filePaths.length) return null;
+  return r.filePaths[0];
 });
-
+ipcMain.handle("pick-workspace-file", async () => {
+  const r = await dialog.showOpenDialog(mainWindow, {
+    properties: ["openFile"],
+    filters: [{ name: "Quill Workspace", extensions: ["json", "yaml", "yml"] }],
+    title: "Open Workspace",
+  });
+  if (r.canceled || !r.filePaths.length) return null;
+  return r.filePaths[0];
+});
 ipcMain.handle("get-env", () => {
   const env = parseEnvFile(envPath());
-  const masked = {};
-  for (const [k, v] of Object.entries(env)) {
-    masked[k] = v ? "••••••••" : "";
-  }
-  return { path: envPath(), keys: Object.keys(env), masked, raw: env };
+  return { path: envPath(), keys: Object.keys(env) };
 });
-
 ipcMain.handle("save-env-keys", (_e, updates) => {
   const file = envPath();
   const env = parseEnvFile(file);
   for (const [k, v] of Object.entries(updates || {})) {
-    if (v === "" || v === null || v === undefined) delete env[k];
+    if (v === "" || v == null) delete env[k];
     else env[k] = String(v).trim();
   }
   writeEnvFile(file, env);
@@ -215,28 +246,18 @@ ipcMain.handle("save-env-keys", (_e, updates) => {
   const connected = integrations.filter((i) => i.status === "connected").length;
   return { ok: true, integrationsSummary: `${connected} of ${INTEGRATIONS.length} connected`, integrations };
 });
-
-ipcMain.handle("pty-create", (_e, opts) => {
-  const id = `term-${++termCounter}`;
-  return spawnTerm(id, opts);
-});
-
+ipcMain.handle("pty-create", (_e, opts) => spawnTerm(`term-${++termCounter}`, opts));
 ipcMain.handle("pty-write", (_e, { id, data }) => {
   const t = terminals.get(id);
   if (t?.proc?.stdin?.writable) t.proc.stdin.write(data);
 });
-
 ipcMain.handle("pty-resize", () => {});
-
 ipcMain.handle("pty-kill", (_e, { id }) => {
   const t = terminals.get(id);
-  if (t) {
-    try { t.proc.kill(); } catch (_) {}
-    terminals.delete(id);
-  }
+  if (t) { try { t.proc.kill(); } catch (_) {} terminals.delete(id); }
 });
-
 ipcMain.handle("open-external", (_e, url) => shell.openExternal(url));
+ipcMain.handle("app-quit", () => app.quit());
 
 app.whenReady().then(createWindow);
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });

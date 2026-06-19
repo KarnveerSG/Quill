@@ -81,23 +81,26 @@ DEFAULT_THEME = {
 
 class UI:
     def __init__(self, color: bool = True, theme: dict | None = None, verbose: bool = False):
+        import os
+        self._desktop = os.environ.get("QUILL_DESKTOP") == "1"
         self.console = Console(highlight=False, force_terminal=True) if (_HAS_RICH and color) else None
         self._spinner_active = False
         self.verbose = verbose
         self.theme = {**DEFAULT_THEME, **(theme or {})}
         self._activity_label: str | None = None
         self._pt_session = None
-        try:
-            from prompt_toolkit import PromptSession
-            from prompt_toolkit.completion import WordCompleter
-            from prompt_toolkit.history import InMemoryHistory
-            self._pt_session = PromptSession(
-                history=InMemoryHistory(),
-                completer=WordCompleter(_SLASH_COMMANDS, match_middle=False, sentence=False),
-                complete_while_typing=False,
-            )
-        except Exception:
-            self._pt_session = None
+        if not self._desktop:
+            try:
+                from prompt_toolkit import PromptSession
+                from prompt_toolkit.completion import WordCompleter
+                from prompt_toolkit.history import InMemoryHistory
+                self._pt_session = PromptSession(
+                    history=InMemoryHistory(),
+                    completer=WordCompleter(_SLASH_COMMANDS, match_middle=False, sentence=False),
+                    complete_while_typing=False,
+                )
+            except Exception:
+                pass
 
     # ---- generic -----------------------------------------------------
     def print(self, text: str = "", style: str | None = None):
@@ -113,14 +116,6 @@ class UI:
             print(f"---- {title} ----" if title else "-" * 40)
 
     def banner(self, model: str, workspace: str, memory_files: list[str], provider: str = "", fallback: bool = True):
-        art = r"""
-  ____        _ _ _     
- |  _ \ _   _| | | | __
- | |_) | | | | | | |/ /
- |  __/| |_| | | |   < 
- |_|    \__,_|_|_|_|\_\
-          CODE BEAUTIFUL
-""".rstrip("\n")
         mem = ", ".join(memory_files) if memory_files else "none"
         fb = "Cursor → Claude → local" if fallback else "off"
         info = (
@@ -132,17 +127,18 @@ class UI:
             f"💡 Type [bold]/help[/bold] for commands"
         )
         if self.console:
-            self.console.print(Text(art, style="bold cyan"))
+            self.console.print(Text("Quill\nCODE BEAUTIFUL", style="bold cyan"))
             panel = Panel(
-                Padding(info, (0, 2)), 
-                border_style="cyan", 
+                Padding(info, (0, 2)),
+                border_style="cyan",
                 title="[bold cyan]Quill[/bold cyan]",
                 title_align="center",
-                expand=True
+                expand=True,
             )
             self.console.print(panel)
         else:
-            print(art)
+            print("Quill")
+            print("CODE BEAUTIFUL")
             print(info)
             print()
 

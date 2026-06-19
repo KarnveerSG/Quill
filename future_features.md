@@ -48,5 +48,5 @@ Planned enhancements beyond the current MVP (single workspace, agent terminal, i
 - [x] Multi-theme support (dark, i mode, midnight, ocean, sunset, forest)
 - [x] Integrations settings panel with `~/.quill/.env` persistence
 - [x] VS Code-style menu bar (File, Edit, View, …)
-- [ ] MCP Skills UI shell (placeholder only)
-- [ ] Remote Integration UI shell (placeholder only)
+- [x] MCP Skills UI shell (placeholder only)
+- [x] Remote Integration UI shell (placeholder only)

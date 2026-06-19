@@ -4,23 +4,59 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:;" />
-  <title>.quill</title>
+  <title>Quill</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="theme-dark">
-  <header class="titlebar">
-    <div class="brand">
-      <span class="brand-dot">.</span><span class="brand-name">quill</span>
+  <header class="app-chrome">
+    <div class="brand-row">
+      <span class="brand-name">Quill</span>
       <span class="brand-tag">CODE BEAUTIFUL</span>
     </div>
-    <nav class="menu">
-      <button type="button" data-action="settings">Settings</button>
-      <button type="button" data-action="new-pane">+ Terminal</button>
-      <button type="button" data-action="toggle-theme">i mode</button>
-      <button type="button" data-action="palette">Ctrl+P</button>
+    <nav class="menubar" id="menubar">
+      <div class="menu-item" data-menu="file">
+        <button type="button" class="menu-trigger">File</button>
+        <div class="menu-dropdown hidden">
+          <button type="button" data-action="open-workspace">Open Workspace…</button>
+          <button type="button" data-action="open-folder">Open Folder…</button>
+          <button type="button" data-action="add-folder">Add Folder to Workspace…</button>
+          <hr />
+          <button type="button" data-action="settings">Settings</button>
+          <button type="button" data-action="quit">Exit</button>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="edit">
+        <button type="button" class="menu-trigger">Edit</button>
+        <div class="menu-dropdown hidden">
+          <button type="button" data-action="palette">Command Palette… <span>Ctrl+P</span></button>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="selection"><button type="button" class="menu-trigger">Selection</button></div>
+      <div class="menu-item" data-menu="view">
+        <button type="button" class="menu-trigger">View</button>
+        <div class="menu-dropdown hidden">
+          <button type="button" data-action="new-pane">New Terminal</button>
+          <button type="button" data-action="settings-appearance">Themes…</button>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="go"><button type="button" class="menu-trigger">Go</button></div>
+      <div class="menu-item" data-menu="run"><button type="button" class="menu-trigger">Run</button></div>
+      <div class="menu-item" data-menu="terminal">
+        <button type="button" class="menu-trigger">Terminal</button>
+        <div class="menu-dropdown hidden">
+          <button type="button" data-action="new-pane">New Terminal</button>
+        </div>
+      </div>
+      <div class="menu-item" data-menu="help">
+        <button type="button" class="menu-trigger">Help</button>
+        <div class="menu-dropdown hidden">
+          <button type="button" data-action="about">About Quill</button>
+        </div>
+      </div>
     </nav>
   </header>
+
   <div class="layout">
     <aside class="sidebar">
       <div class="sidebar-title">WORKSPACES</div>
@@ -28,10 +64,10 @@
       <button type="button" class="add-ws" id="add-workspace">+ Workspace</button>
     </aside>
     <main class="workspace">
-      <div id="pane-grid" class="pane-grid grid-2x2"></div>
+      <div id="pane-grid" class="pane-grid grid-1x1"></div>
       <footer class="statusbar">
         <span id="status-provider">Quill agent</span>
-        <span id="status-hints">esc interrupt · ctrl+p commands</span>
+        <span id="status-hints">Ctrl+P commands · Ctrl+Shift+I theme</span>
         <span id="status-path"></span>
       </footer>
     </main>

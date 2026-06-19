@@ -900,6 +900,14 @@ def run_repl(cfg, no_memory: bool, ui: UI, initial_task: str | None, voice=None)
 
 
 def main(argv: list[str] | None = None) -> int:
+    import os
+    if os.environ.get("QUILL_DESKTOP") == "1":
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(line_buffering=True, encoding="utf-8")
+            except Exception:
+                pass
+
     args = build_parser().parse_args(argv)
 
     if args.desktop:
