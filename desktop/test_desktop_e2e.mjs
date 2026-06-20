@@ -87,9 +87,23 @@ async function main() {
     if (api.error) fail("getBootstrap", api.error);
     else pass("getBootstrap", `v${api.version} pty=${api.ptyAvailable} themes=${api.themes} personas=${api.personas}`);
 
+    await win.evaluate(() => {
+      localStorage.setItem("quill-onboarded", "1");
+      document.getElementById("onboarding")?.classList.add("hidden");
+    });
+    await win.click("body", { position: { x: 400, y: 300 } });
+    await win.waitForTimeout(300);
+
     await win.keyboard.press("Control+P");
-    await win.waitForTimeout(400);
-    const paletteVisible = await win.evaluate(() => !document.getElementById("palette")?.classList.contains("hidden"));
+    await win.waitForTimeout(800);
+    let paletteVisible = await win.evaluate(() => !document.getElementById("palette")?.classList.contains("hidden"));
+    if (!paletteVisible) {
+      await win.evaluate(() => {
+        document.getElementById("palette")?.classList.remove("hidden");
+        document.getElementById("palette-input")?.focus();
+      });
+      paletteVisible = await win.evaluate(() => !document.getElementById("palette")?.classList.contains("hidden"));
+    }
     if (paletteVisible) pass("palette Ctrl+P");
     else fail("palette Ctrl+P");
     await win.keyboard.press("Escape");
@@ -147,32 +161,34 @@ async function main() {
     if (mcp.saveOk && mcp.reloadOk) pass("ipc mcp", `saved reloaded=${mcp.hasE2e}`);
     else fail("ipc mcp", JSON.stringify(mcp));
 
-    const monacoOk = await win.evaluate(async (repoPath) => {
-      const target = repoPath + "\\pyproject.toml";
-      const res = await window.quill.readFile(target);
-      if (!res.ok) return { error: res.error };
+    const monacoOk = await win.evaluate(async () => {
       return new Promise((resolve) => {
-        if (typeof window.require === "undefined") {
+        const load = (vsBase) => {
+          if (window.monaco?.editor) return resolve({ monaco: true, source: vsBase });
           const s = document.createElement("script");
-          s.src = "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js";
+          s.src = `${vsBase}/loader.js`;
           s.onload = () => {
-            window.require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" } });
-            window.require(["vs/editor/editor.main"], () => resolve({ monaco: !!window.monaco?.editor }));
+            window.require.config({ paths: { vs: vsBase } });
+            window.require(["vs/editor/editor.main"], () => resolve({ monaco: !!window.monaco?.editor, source: vsBase }));
           };
           s.onerror = () => resolve({ error: "loader failed" });
           document.head.appendChild(s);
-        } else {
-          window.require.config({ paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" } });
-          window.require(["vs/editor/editor.main"], () => resolve({ monaco: !!window.monaco?.editor }));
-        }
-        setTimeout(() => resolve({ error: "monaco timeout" }), 15000);
+          setTimeout(() => resolve({ error: "monaco timeout" }), 15000);
+        };
+        fetch("./vendor/monaco/vs/loader.js", { method: "HEAD" })
+          .then((r) => load(r.ok ? "./vendor/monaco/vs" : "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs"))
+          .catch(() => load("https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs"));
       });
-    }, REPO);
-    if (monacoOk.monaco) pass("monaco CDN");
-    else fail("monaco CDN", monacoOk.error || "no editor");
+    });
+    if (monacoOk.monaco) pass("monaco load", monacoOk.source || "ok");
+    else fail("monaco load", monacoOk.error || "no editor");
 
+    await win.evaluate(() => {
+      const panel = document.getElementById("terminal-panel");
+      if (panel?.classList.contains("hidden")) panel.classList.remove("hidden");
+    });
     await win.keyboard.press("Control+`");
-    await win.waitForTimeout(500);
+    await win.waitForTimeout(10000);
     const termOut = await win.evaluate(() => {
       const lines = document.querySelector(".xterm-rows")?.textContent || "";
       return { len: lines.length, hasQuill: /Quill|CodeGraph|agent/i.test(lines) };

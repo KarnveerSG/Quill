@@ -79,6 +79,31 @@ async function init() {
     el.addEventListener("click", (e) => { e.preventDefault(); toggleTerminalPanel(); });
   });
 
+  window.QuillFeatures?.init({
+    activeWs,
+    ensureMonaco,
+    getEditor: () => monacoEditor,
+    getEditorPath: () => editorFilePath,
+    setEditorPath: (p) => { editorFilePath = p; },
+    setDirty: (d) => { editorDirty = d; },
+    guessLang: guessMonacoLang,
+    updateDirtyUI: updateEditorDirty,
+    updateTitlebar,
+    closeEditor,
+    saveEditor,
+    refreshEditor: refreshEditorContent,
+    refreshGit: refreshGitInfo,
+    openPalette,
+    toggleTerminal: () => toggleTerminalPanel(),
+    openFolder,
+    showToast,
+    pathsEqual,
+    resolvePath: resolveWsPath,
+    setEditorTab,
+    getState: () => state,
+    _lspRegistered: false,
+  });
+
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {
       e.preventDefault();
@@ -142,12 +167,14 @@ function appendAgentChat(role, text) {
 }
 
 function appendAgentStream(raw) {
+  window.QuillFeatures?.parseAgentStream(raw);
   agentChatLineBuffer += stripAnsi(raw);
   clearTimeout(agentChatFlushTimer);
   agentChatFlushTimer = setTimeout(() => {
     const lines = agentChatLineBuffer.split("\n").map((l) => l.trim()).filter(Boolean);
     agentChatLineBuffer = "";
-    const chunk = lines.slice(-8).join("\n");
+    const filtered = lines.filter((l) => !/\[QUILL_(TOOL|EDIT):/.test(l));
+    const chunk = filtered.slice(-8).join("\n");
     if (chunk.length > 2) appendAgentChat("agent", chunk);
   }, 400);
 }
@@ -325,6 +352,8 @@ async function refreshGitInfo(ws = activeWs()) {
   renderWorkspaces();
   await refreshScmPanel();
   await refreshBranchDropdown();
+  await window.QuillFeatures?.refreshGitFileStatus();
+  await renderFileTree();
 }
 
 async function refreshAllGitInfo() {
@@ -516,10 +545,9 @@ function ensureMonaco() {
   if (monacoInitPromise) return monacoInitPromise;
   monacoInitPromise = (async () => {
     if (window.monaco?.editor) return;
-    await loadScript("https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js");
-    window.require.config({
-      paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" },
-    });
+    const vsBase = window.QuillFeatures ? await window.QuillFeatures.monacoVsBase() : "./vendor/monaco/vs";
+    await loadScript(`${vsBase}/loader.js`);
+    window.require.config({ paths: { vs: vsBase } });
     await new Promise((resolve, reject) => {
       window.require(["vs/editor/editor.main"], () => resolve(), reject);
     });
@@ -532,10 +560,12 @@ function ensureMonaco() {
         fontSize: 13,
         fontFamily: "Cascadia Code, Consolas, monospace",
         scrollBeyondLastLine: false,
+        glyphMargin: true,
       });
       monacoEditor.onDidChangeModelContent(() => {
         editorDirty = true;
         updateEditorDirty();
+        window.QuillFeatures?.onEditorContentChange();
       });
     }
     const diffEl = document.getElementById("monaco-diff");
@@ -549,18 +579,19 @@ function ensureMonaco() {
         fontFamily: "Cascadia Code, Consolas, monospace",
       });
     }
+    window.QuillFeatures?.registerLspProviders();
   })();
   return monacoInitPromise;
 }
 
 function updateEditorDirty() {
+  const tabs = window.QuillFeatures?.getOpenTabs?.();
+  if (tabs && editorFilePath && tabs.has(editorFilePath)) {
+    window.QuillFeatures.renderTabs();
+    return;
+  }
   const dot = document.getElementById("editor-dirty");
   if (dot) dot.classList.toggle("hidden", !editorDirty);
-  const title = document.getElementById("editor-title");
-  if (title && editorFilePath) {
-    const base = editorFilePath.split(/[/\\]/).pop() || editorFilePath;
-    title.textContent = editorDirty ? `${base} *` : base;
-  }
 }
 
 async function saveEditor() {
@@ -574,6 +605,7 @@ async function saveEditor() {
   }
   editorDirty = false;
   updateEditorDirty();
+  window.QuillFeatures?.markSaved();
   showToast("Saved");
   await refreshGitInfo();
 }
@@ -626,7 +658,11 @@ async function onWorkspaceFileChanged(changedPath) {
 }
 
 function bindEditorDrawer() {
-  document.getElementById("editor-close")?.addEventListener("click", () => closeEditor());
+  document.getElementById("editor-close")?.addEventListener("click", () => {
+    const p = editorFilePath;
+    if (p && window.QuillFeatures) void window.QuillFeatures.closeTab(p);
+    else closeEditor();
+  });
   document.getElementById("editor-save")?.addEventListener("click", () => void saveEditor());
   document.querySelectorAll(".editor-tab-btn[data-tab]").forEach((tab) => {
     tab.onclick = () => void setEditorTab(tab.dataset.tab);
@@ -636,9 +672,12 @@ function bindEditorDrawer() {
 function closeEditor() {
   editorFilePath = null;
   editorDirty = false;
+  window.QuillFeatures?.getOpenTabs()?.clear?.();
   document.getElementById("editor-area")?.classList.add("hidden");
   document.getElementById("empty-state")?.classList.remove("hidden");
+  document.getElementById("inline-diff-bar")?.classList.add("hidden");
   updateTitlebar();
+  window.QuillFeatures?.renderTabs?.();
 }
 
 async function setEditorTab(tab) {
@@ -653,6 +692,10 @@ async function setEditorTab(tab) {
 }
 
 async function openFileInEditor(filePath) {
+  if (window.QuillFeatures) {
+    await window.QuillFeatures.openTab(filePath);
+    return;
+  }
   const res = await window.quill.readFile(filePath);
   if (!res.ok) {
     showToast(res.error || "Cannot open file");
@@ -678,16 +721,18 @@ async function openFileInEditor(filePath) {
 }
 
 async function appendTreeDir(parentUl, dirPath, depth) {
+  if (window.QuillFeatures?.lazyTreeLimit?.(depth)) return;
   const res = await window.quill.listDirectory(dirPath);
   if (!res.ok) return;
-  for (const entry of res.entries) {
+  const maxEntries = depth === 0 ? 200 : 80;
+  for (const entry of res.entries.slice(0, maxEntries)) {
     const li = document.createElement("li");
     li.className = "tree-item" + (entry.isDirectory ? " tree-dir" : " tree-file");
     li.style.paddingLeft = `${6 + depth * 12}px`;
     li.dataset.path = entry.path;
     const expanded = entry.isDirectory && expandedDirs.has(entry.path);
     if (expanded) li.classList.add("expanded");
-    li.innerHTML = `<span class="tree-icon">${entry.isDirectory ? "▸" : "·"}</span><span class="tree-name">${escHtml(entry.name)}</span>`;
+    li.innerHTML = `<span class="tree-icon">${entry.isDirectory ? "▸" : "·"}</span><span class="tree-name">${escHtml(entry.name)}</span>${window.QuillFeatures?.treeGitBadge(entry.path) || ""}`;
     parentUl.appendChild(li);
     if (entry.isDirectory) {
       li.onclick = async (e) => {
@@ -1113,6 +1158,7 @@ function bindEvents() {
     if (e.ctrlKey && e.key === "o") { e.preventDefault(); openFolder(); }
     if (e.ctrlKey && e.key === "`") { e.preventDefault(); toggleTerminalPanel(); }
     if (e.ctrlKey && e.key === "l") { e.preventDefault(); document.getElementById("agent-composer-input")?.focus(); }
+    if (e.ctrlKey && e.shiftKey && e.key === "F") { e.preventDefault(); document.getElementById("global-search")?.classList.remove("hidden"); document.getElementById("global-search-input")?.focus(); }
     if (e.ctrlKey && e.shiftKey && e.key === "I") { cycleTheme(); }
     if (e.key === "Escape") { closePalette(); closeSettings(); }
   });
@@ -1161,6 +1207,16 @@ function renderSettingsContent() {
 
   if (settingsSection === "mcp") {
     void renderMcpSettings(el);
+    return;
+  }
+
+  if (settingsSection === "keybindings") {
+    void window.QuillFeatures?.renderKeybindingsSettings(el);
+    return;
+  }
+
+  if (settingsSection === "extensions") {
+    window.QuillFeatures?.renderExtensionsSettings(el);
     return;
   }
 
@@ -1267,10 +1323,12 @@ function mcpServersFromForm() {
     const name = card.querySelector('[data-mcp-field="name"]')?.value.trim();
     const command = card.querySelector('[data-mcp-field="command"]')?.value.trim();
     const argsText = card.querySelector('[data-mcp-field="args"]')?.value || "";
+    const enabledCb = card.querySelector("[data-mcp-enabled]");
     if (!name || !command) return;
     const entry = { command };
     const args = parseMcpArgs(argsText);
     if (args.length) entry.args = args;
+    if (enabledCb && !enabledCb.checked) entry.enabled = false;
     servers[name] = entry;
   });
   return servers;
@@ -1293,10 +1351,11 @@ function renderMcpServerList() {
   list.innerHTML = names.map((name) => {
     const spec = mcpDraft.servers[name] || {};
     const args = (spec.args || []).join(", ");
+    const enabled = spec.enabled !== false;
     return `
     <details class="integration-card" open>
       <summary>
-        <span class="int-name">${escHtml(name)}</span>
+        <label class="mcp-toggle"><input type="checkbox" data-mcp-enabled="${escHtml(name)}"${enabled ? " checked" : ""} /> <span class="int-name">${escHtml(name)}</span></label>
         <button type="button" class="mcp-delete-btn" data-name="${escHtml(name)}" title="Remove">×</button>
       </summary>
       <div class="int-keys">
@@ -1331,6 +1390,7 @@ function renderMcpServerList() {
       if (status) status.textContent = res.ok ? res.message : res.error;
     };
   });
+  window.QuillFeatures?.bindMcpToggles(list);
 }
 
 async function renderMcpSettings(el) {
@@ -1369,6 +1429,7 @@ async function renderMcpSettings(el) {
       <p class="settings-sub mcp-status" id="mcp-status"></p>
     </div>`;
   renderMcpServerList();
+  window.QuillFeatures?.setMcpDraftRef(mcpDraft);
   document.getElementById("mcp-add-btn").onclick = () => {
     const name = document.getElementById("mcp-new-name").value.trim();
     const command = document.getElementById("mcp-new-command").value.trim();
@@ -1506,9 +1567,13 @@ async function renderPalette(q) {
     }
   }
 
+  if (window.QuillFeatures && ql.length >= 2) {
+    await window.QuillFeatures.extendPalette(items, ql);
+  }
+
   paletteItems = items;
   list.innerHTML = items.map((item, i) =>
-    `<li data-id="${escHtml(item.id)}" class="${i === 0 ? "active" : ""}" data-kind="${item.kind}">${escHtml(item.label)}</li>`
+    `<li data-id="${escHtml(item.id)}" class="${i === 0 ? "active" : ""}" data-kind="${item.kind || "command"}">${escHtml(item.label)}</li>`
   ).join("");
   list.querySelectorAll("li").forEach((li) => {
     li.onclick = () => {

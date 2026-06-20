@@ -478,6 +478,12 @@ class ToolRunner:
             target = str(path)
         print(f"[QUILL_EDIT:{target}]", file=sys.stderr, flush=True)
 
+    def _emit_quill_tool(self, name: str, detail: str = "") -> None:
+        if not os.environ.get("QUILL_DESKTOP"):
+            return
+        safe = str(detail or "").replace("\n", " ").replace(":", " ")[:160]
+        print(f"[QUILL_TOOL:{name}:{safe}]", file=sys.stderr, flush=True)
+
     def _unified_diff(self, old: str, new: str, path: Path) -> str | None:
         if old == new:
             return None
@@ -497,6 +503,10 @@ class ToolRunner:
 
     # ---- dispatch -----------------------------------------------------
     def run(self, name: str, args: dict) -> ToolResult:
+        detail = ""
+        if isinstance(args, dict):
+            detail = str(args.get("path") or args.get("file_path") or args.get("command") or "")[:160]
+        self._emit_quill_tool(name, detail)
         # Pre-hook: a non-zero exit blocks the call.
         pre = run_hook("pre", name, args or {}, self.workspace)
         if pre is not None:

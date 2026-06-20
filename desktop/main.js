@@ -708,7 +708,157 @@ ipcMain.handle("git-show-file", async (_e, { cwd, filePath, ref }) => {
 
 ipcMain.handle("check-for-updates", async () => {
   const current = app.getVersion();
-  return { ok: true, current, updateAvailable: false, latest: current, url: null };
+  try {
+    const https = require("https");
+    const body = await new Promise((resolve, reject) => {
+      https.get(
+        "https://api.github.com/repos/KarnveerSG/Quill/releases/latest",
+        { headers: { "User-Agent": "Quill-Desktop" } },
+        (res) => {
+          let data = "";
+          res.on("data", (c) => { data += c; });
+          res.on("end", () => resolve(data));
+        },
+      ).on("error", reject);
+    });
+    const json = JSON.parse(body);
+    const latest = (json.tag_name || "").replace(/^v/, "") || current;
+    const updateAvailable = latest !== current;
+    return { ok: true, current, latest, updateAvailable, url: json.html_url || null };
+  } catch {
+    return { ok: true, current, latest: current, updateAvailable: false, url: null };
+  }
+});
+
+ipcMain.handle("search-content", async (_e, { cwd, query, limit }) => {
+  const root = resolveWorkspaceCwd(cwd);
+  const q = String(query || "").trim();
+  const max = Math.min(Number(limit) || 50, 200);
+  if (!q) return { ok: true, matches: [] };
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["grep", "-n", "-i", "--full-name", q, "--", "."],
+      { cwd: root, windowsHide: true, maxBuffer: 2 * 1024 * 1024 },
+    );
+    const matches = stdout.split(/\r?\n/).filter(Boolean).slice(0, max).map((line) => {
+      const m = line.match(/^([^:]+):(\d+):(.*)$/);
+      return m ? { path: path.resolve(root, m[1]), line: Number(m[2]), text: m[3] } : null;
+    }).filter(Boolean);
+    return { ok: true, matches };
+  } catch {
+    const matches = [];
+    const skip = new Set(["node_modules", ".git", "dist", "build"]);
+    function walk(dir, depth) {
+      if (matches.length >= max || depth > 5) return;
+      let entries;
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const d of entries) {
+        if (matches.length >= max) break;
+        if (d.name.startsWith(".") || skip.has(d.name)) continue;
+        const full = path.join(dir, d.name);
+        if (d.isDirectory()) walk(full, depth + 1);
+        else if (d.isFile() && fs.statSync(full).size < 256000) {
+          try {
+            const lines = fs.readFileSync(full, "utf8").split(/\r?\n/);
+            lines.forEach((text, i) => {
+              if (matches.length < max && text.toLowerCase().includes(q.toLowerCase())) {
+                matches.push({ path: full, line: i + 1, text: text.trim().slice(0, 200) });
+              }
+            });
+          } catch (_) {}
+        }
+      }
+    }
+    walk(root, 0);
+    return { ok: true, matches };
+  }
+});
+
+ipcMain.handle("list-symbols", (_e, { filePath }) => {
+  try {
+    const target = path.resolve(filePath);
+    if (!fs.existsSync(target)) return { ok: false, symbols: [] };
+    const ext = path.extname(target).toLowerCase();
+    const lines = fs.readFileSync(target, "utf8").split(/\r?\n/);
+    const symbols = [];
+    const patterns = ext === ".py"
+      ? [/^\s*(?:async\s+)?def\s+(\w+)/, /^\s*class\s+(\w+)/]
+      : [/^\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)/, /^\s*(?:export\s+)?class\s+(\w+)/, /^\s*(?:const|let|var)\s+(\w+)\s*=/];
+    lines.forEach((line, i) => {
+      for (const re of patterns) {
+        const m = line.match(re);
+        if (m) symbols.push({ name: m[1], line: i + 1, kind: line.includes("class") ? "class" : "function" });
+      }
+    });
+    return { ok: true, symbols: symbols.slice(0, 500) };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e), symbols: [] };
+  }
+});
+
+ipcMain.handle("git-file-gutter", async (_e, { cwd, filePath }) => {
+  const root = resolveWorkspaceCwd(cwd);
+  const rel = path.relative(root, path.resolve(filePath)).replace(/\\/g, "/");
+  if (!rel || rel.startsWith("..")) return { ok: false, lines: [] };
+  const r = await runGitEx(root, ["diff", "-U0", "--", rel]);
+  if (!r.ok) return { ok: true, lines: [] };
+  const lines = [];
+  let current = 0;
+  for (const line of r.stdout.split(/\r?\n/)) {
+    const h = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/);
+    if (h) { current = Number(h[1]); continue; }
+    if (line.startsWith("+") && !line.startsWith("+++")) lines.push({ line: current++, type: "add" });
+    else if (line.startsWith("-") && !line.startsWith("---")) lines.push({ line: current, type: "del" });
+    else if (line.startsWith(" ")) current++;
+  }
+  return { ok: true, lines };
+});
+
+function keybindingsPath() {
+  return path.join(os.homedir(), ".quill", "keybindings.json");
+}
+
+ipcMain.handle("get-keybindings", () => {
+  const file = keybindingsPath();
+  if (!fs.existsSync(file)) return { ok: true, bindings: {} };
+  try {
+    return { ok: true, bindings: JSON.parse(fs.readFileSync(file, "utf8")) };
+  } catch {
+    return { ok: true, bindings: {} };
+  }
+});
+
+ipcMain.handle("save-keybindings", (_e, bindings) => {
+  const file = keybindingsPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(bindings || {}, null, 2) + "\n", "utf8");
+  return { ok: true };
+});
+
+ipcMain.handle("export-workspace-sync", (_e, state) => {
+  const file = path.join(os.homedir(), ".quill", "workspace-sync.json");
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ exportedAt: Date.now(), state }, null, 2) + "\n", "utf8");
+  return { ok: true, path: file };
+});
+
+ipcMain.handle("import-workspace-sync", () => {
+  const file = path.join(os.homedir(), ".quill", "workspace-sync.json");
+  if (!fs.existsSync(file)) return { ok: false, error: "No sync file." };
+  try {
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
+    return { ok: true, state: data.state };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+});
+
+ipcMain.handle("git-revert-file", async (_e, { cwd, filePath }) => {
+  const root = resolveWorkspaceCwd(cwd);
+  const rel = path.relative(root, path.resolve(filePath)).replace(/\\/g, "/");
+  const r = await runGitEx(root, ["checkout", "--", rel]);
+  return r.ok ? { ok: true } : { ok: false, error: r.error };
 });
 
 ipcMain.handle("git-diff", async (_e, { cwd, filePath }) => {

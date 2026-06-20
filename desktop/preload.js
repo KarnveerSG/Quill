@@ -35,4 +35,12 @@ contextBridge.exposeInMainWorld("quill", {
   searchFiles: (opts) => ipcRenderer.invoke("search-files", opts),
   testMcpServer: (spec) => ipcRenderer.invoke("test-mcp-server", spec),
   checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  searchContent: (opts) => ipcRenderer.invoke("search-content", opts),
+  listSymbols: (opts) => ipcRenderer.invoke("list-symbols", opts),
+  gitFileGutter: (opts) => ipcRenderer.invoke("git-file-gutter", opts),
+  gitRevertFile: (opts) => ipcRenderer.invoke("git-revert-file", opts),
+  getKeybindings: () => ipcRenderer.invoke("get-keybindings"),
+  saveKeybindings: (bindings) => ipcRenderer.invoke("save-keybindings", bindings),
+  exportWorkspaceSync: (state) => ipcRenderer.invoke("export-workspace-sync", state),
+  importWorkspaceSync: () => ipcRenderer.invoke("import-workspace-sync"),
 });

@@ -25,4 +25,5 @@ data/
 .sexyjarvis/
 node_modules/
 desktop/node_modules/
+desktop/renderer/vendor/
 .codegraph/

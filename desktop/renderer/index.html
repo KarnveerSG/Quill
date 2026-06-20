@@ -3,9 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; font-src 'self' https://cdn.jsdelivr.net data:; worker-src 'self' blob: https://cdn.jsdelivr.net;" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; worker-src 'self' blob:;" />
   <title>Quill</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css" />
+  <link rel="stylesheet" href="vendor/xterm.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="theme-dark">
@@ -49,7 +49,7 @@
   <div class="app-shell">
     <nav class="activity-bar" id="activity-bar">
       <button type="button" class="activity-btn active" data-panel="explorer" title="Explorer">◫</button>
-      <button type="button" class="activity-btn" data-panel="scm" title="Source Control">⑂</button>
+      <button type="button" class="activity-btn" data-panel="scm" title="Source Control">⑂<span class="activity-badge hidden" id="scm-badge">0</span></button>
       <button type="button" class="activity-btn" data-panel="search" title="Search">⌕</button>
       <button type="button" class="activity-btn" data-panel="agent" title="Agent">✦</button>
       <button type="button" class="activity-btn activity-spacer" disabled aria-hidden="true"></button>
@@ -80,7 +80,7 @@
       </div>
       <div class="panel-view" data-view="search">
         <div class="panel-header"><span>SEARCH</span></div>
-        <input type="text" id="side-search" class="side-search-input" placeholder="Search files…" autocomplete="off" />
+        <input type="text" id="side-search" class="side-search-input" placeholder="Search files… (Ctrl+Shift+F for content)" autocomplete="off" />
         <ul id="search-results" class="search-results"></ul>
       </div>
       <div class="panel-view" data-view="settings">
@@ -103,16 +103,19 @@
         </ul>
       </div>
       <div id="editor-area" class="editor-area hidden">
-        <div class="editor-tabbar">
-          <div class="editor-tabs-row" id="editor-tabs-row">
-            <button type="button" class="file-tab active" id="editor-tab-main">
-              <span id="editor-title">Untitled</span>
-              <span id="editor-dirty" class="editor-dirty hidden">●</span>
-            </button>
+        <div id="inline-diff-bar" class="inline-diff-bar hidden">
+          <span>Agent edited <strong class="inline-diff-path"></strong></span>
+          <div class="inline-diff-actions">
+            <button type="button" class="scm-btn" id="diff-accept">Keep</button>
+            <button type="button" class="scm-btn" id="diff-reject">Revert</button>
           </div>
+        </div>
+        <div class="editor-tabbar">
+          <div class="editor-tabs-row" id="editor-tabs-row"></div>
           <div class="editor-tab-actions">
             <button type="button" class="editor-tab-btn" data-tab="file">Edit</button>
             <button type="button" class="editor-tab-btn" data-tab="diff">Diff</button>
+            <button type="button" class="editor-tab-btn" id="editor-split" title="Split">⧉</button>
             <button type="button" class="editor-tab-btn" id="editor-save" title="Save">Save</button>
             <button type="button" class="editor-tab-btn" id="editor-close" title="Close">×</button>
           </div>
@@ -169,12 +172,31 @@
   </div>
 
   <div id="palette" class="palette hidden">
-    <input id="palette-input" type="text" placeholder="Command palette…" autocomplete="off" />
+    <input id="palette-input" type="text" placeholder="Files, commands, symbols…" autocomplete="off" />
     <ul id="palette-list"></ul>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+  <div id="global-search" class="global-search hidden">
+    <div class="global-search-panel">
+      <header><span>Search in files</span><button type="button" id="global-search-close">×</button></header>
+      <input id="global-search-input" type="text" placeholder="Search content…" autocomplete="off" />
+      <ul id="global-search-results"></ul>
+    </div>
+  </div>
+
+  <div id="onboarding" class="onboarding hidden">
+    <div class="onboarding-card">
+      <div class="empty-logo">Q</div>
+      <h2>Welcome to Quill</h2>
+      <p>Open a project folder to start editing with the AI agent.</p>
+      <button type="button" class="btn-primary" id="onboard-open">Open folder</button>
+      <button type="button" class="btn-secondary" id="onboard-skip">Skip for now</button>
+    </div>
+  </div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script src="quill-features.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
