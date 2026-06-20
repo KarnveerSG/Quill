@@ -17,6 +17,26 @@ let activeSidePanel = "explorer";
 let agentChatLineBuffer = "";
 let primaryPaneId = null;
 let agentChatFlushTimer = null;
+const wsChats = {};
+const TREE_SKIP = new Set(["node_modules", ".git", ".codegraph", "__pycache__", "dist", "build"]);
+const TREE_SKIP_FILES = /^NTUSER\.DAT|^ntuser\.dat|^desktop\.ini$/i;
+let agentPanelOpen = true;
+
+function ptyWorkspaceId(ptyId) {
+  for (const [, t] of termInstances) {
+    if (t.ptyId === ptyId) return t.wsId;
+  }
+  return null;
+}
+
+function isAgentNoise(line) {
+  const s = String(line || "").trim();
+  if (!s || s.length < 2) return true;
+  if (/file:\/\/|cursor-sdk|_MEI\d+|bridge\.dist|node_modules|Error \[ERR/i.test(s)) return true;
+  if (/^\[\??\d*[A-Za-z;]*[hlm]$/.test(s) || /^[\[\?\d;]+[a-zA-Z]$/.test(s)) return true;
+  if (/^You >|^Quill |^Workspace:|^Instruction files:|^Tip:|^Token savings:/i.test(s)) return false;
+  return false;
+}
 
 function getCommands() {
   const cmds = [
@@ -74,10 +94,15 @@ async function init() {
   void ensureMonaco();
   populateAgentPersona();
   updateTitlebar();
-  appendAgentChat("system", "Quill agent ready — open a folder or ask a question.");
-  document.getElementById("terminal-panel-close")?.addEventListener("click", () => toggleTerminalPanel(false));
-  document.querySelectorAll("[data-action='toggle-terminal']").forEach((el) => {
-    el.addEventListener("click", (e) => { e.preventDefault(); toggleTerminalPanel(); });
+  updateWorkspaceHead();
+  restoreAgentChat(state.activeWorkspace);
+  document.getElementById("ws-add-terminal")?.addEventListener("click", () => addPane());
+  document.getElementById("agent-panel-hide")?.addEventListener("click", () => setAgentPanelOpen(false));
+  document.querySelectorAll("[data-action='open-folder']").forEach((el) => {
+    el.addEventListener("click", (e) => { e.preventDefault(); openFolder(); });
+  });
+  document.querySelectorAll("[data-action='focus-terminal']").forEach((el) => {
+    el.addEventListener("click", (e) => { e.preventDefault(); focusWorkspaceTerminal(); });
   });
 
   window.QuillFeatures?.init({
@@ -130,19 +155,21 @@ async function init() {
   });
 
   window.quill.onPtyData(({ id, data }) => {
+    const wsId = ptyWorkspaceId(id);
     for (const [paneId, t] of termInstances) {
       if (t.ptyId === id) {
         t.term.write(data);
-        pulseActivity(paneId);
+        if (wsId === state.activeWorkspace) pulseActivity(paneId);
       }
     }
+    if (wsId !== state.activeWorkspace) return;
     appendAgentStream(data);
     const editMatch = data.match(/\[QUILL_EDIT:([^\]\r\n]+)\]/);
     if (editMatch) void onWorkspaceFileChanged(resolveWsPath(editMatch[1]));
   });
   window.quill.onPtyExit(({ id }) => {
     for (const [, t] of termInstances) {
-      if (t.ptyId === id) t.term.write("\r\n\x1b[33m[Quill exited — press Enter or restart app]\x1b[0m\r\n");
+      if (t.ptyId === id) t.term.write("\r\n\x1b[33m[Agent exited]\x1b[0m\r\n");
     }
   });
   window.quill.onWorkspaceFileChanged(({ path }) => {
@@ -156,12 +183,11 @@ async function init() {
 }
 
 function resetDefaultState() {
-  const home = bootstrap?.state?.workspaces?.[0]?.cwd || "";
   const paneId = "pane-main";
-  state.stateVersion = 2;
+  state.stateVersion = 3;
   state.workspaces = [{
-    id: "ws-main", name: "Quill", color: bootstrap.rainbow[4], cwd: home,
-    folders: [home], panes: 1, layout: "grid-1x1", paneIds: [paneId], named: false,
+    id: "ws-main", name: "Quill", color: bootstrap.rainbow[4], cwd: "",
+    folders: [], panes: 1, layout: "grid-1x1", paneIds: [paneId], named: false,
   }];
   state.activeWorkspace = "ws-main";
   state.panes = { [paneId]: { persona: "Iris", mode: "agent" } };
@@ -191,10 +217,97 @@ function appendAgentStream(raw) {
   agentChatFlushTimer = setTimeout(() => {
     const lines = agentChatLineBuffer.split("\n").map((l) => l.trim()).filter(Boolean);
     agentChatLineBuffer = "";
-    const filtered = lines.filter((l) => !/\[QUILL_(TOOL|EDIT):/.test(l));
-    const chunk = filtered.slice(-8).join("\n");
+    const filtered = lines.filter((l) => !/\[QUILL_(TOOL|EDIT|TASK|BROWSER):/.test(l) && !isAgentNoise(l));
+    const chunk = filtered.slice(-6).join("\n");
     if (chunk.length > 2) appendAgentChat("agent", chunk);
-  }, 400);
+  }, 500);
+}
+
+function saveAgentChat(wsId) {
+  if (!wsId) return;
+  const box = document.getElementById("agent-chat");
+  if (!box) return;
+  wsChats[wsId] = [...box.querySelectorAll(".chat-msg")].map((el) => ({
+    role: [...el.classList].find((c) => c !== "chat-msg") || "agent",
+    text: el.textContent || "",
+  }));
+}
+
+function restoreAgentChat(wsId) {
+  const box = document.getElementById("agent-chat");
+  if (!box) return;
+  box.innerHTML = "";
+  const msgs = wsChats[wsId] || [];
+  if (!msgs.length) {
+    const ws = state.workspaces.find((w) => w.id === wsId);
+    appendAgentChat("system", `${ws?.name || "Workspace"} — isolated agent (other workspaces can't see this chat).`);
+  } else {
+    msgs.forEach((m) => appendAgentChat(m.role, m.text));
+  }
+}
+
+function setAgentPanelOpen(open) {
+  agentPanelOpen = open;
+  document.getElementById("agent-panel")?.classList.toggle("hidden", !open);
+  document.body.classList.toggle("agent-hidden", !open);
+  setTimeout(() => fitActiveTerminals(), 120);
+}
+
+function focusWorkspaceTerminal() {
+  const ws = activeWs();
+  const paneId = ws?.paneIds?.[0];
+  const host = paneId ? document.getElementById(`term-${paneId}`) : null;
+  host?.focus();
+  fitActiveTerminals();
+}
+
+function updateWorkspaceHead() {
+  const ws = activeWs();
+  const nameEl = document.getElementById("ws-center-name");
+  const personaEl = document.getElementById("ws-center-persona");
+  const dot = document.getElementById("ws-head-dot");
+  const label = document.getElementById("agent-ws-label");
+  if (!ws) return;
+  if (nameEl) nameEl.textContent = ws.name;
+  if (dot) dot.style.background = ws.color;
+  const pid = ws.paneIds?.[0];
+  const persona = pid ? state.panes[pid]?.persona : "";
+  if (personaEl) personaEl.textContent = persona ? `· ${persona}` : "";
+  if (label) label.textContent = ws.name;
+  const folder = ws.named && ws.cwd ? ws.cwd.split(/[/\\]/).pop() : "No folder — open one to browse files";
+  document.getElementById("status-path").textContent = ws.cwd || folder;
+}
+
+function fitActiveTerminals() {
+  const ws = activeWs();
+  if (!ws?.paneIds) return;
+  for (const paneId of ws.paneIds) {
+    termInstances.get(paneId)?.fit?.fit();
+  }
+}
+
+function getWsGrid(ws) {
+  const stage = document.getElementById("workspace-stage");
+  if (!stage || !ws) return null;
+  let grid = document.getElementById(`pane-grid-${ws.id}`);
+  if (!grid) {
+    grid = document.createElement("div");
+    grid.id = `pane-grid-${ws.id}`;
+    grid.dataset.wsId = ws.id;
+    grid.className = `pane-grid ${ws.layout || "grid-1x1"} ws-pane-grid hidden`;
+    stage.appendChild(grid);
+  }
+  return grid;
+}
+
+function showWorkspaceGrid(wsId) {
+  document.querySelectorAll(".ws-pane-grid").forEach((g) => {
+    g.classList.toggle("hidden", g.dataset.wsId !== wsId);
+  });
+  document.getElementById("workspace-center-head")?.classList.remove("hidden");
+  document.getElementById("empty-state")?.classList.add("hidden");
+  updateWorkspaceHead();
+  setTimeout(() => fitActiveTerminals(), 150);
 }
 
 function updateTitlebar() {
@@ -205,12 +318,8 @@ function updateTitlebar() {
   if (el) el.textContent = file ? `${folder} — ${file}` : folder;
 }
 
-function toggleTerminalPanel(show) {
-  const panel = document.getElementById("terminal-panel");
-  if (!panel) return;
-  const open = typeof show === "boolean" ? show : panel.classList.contains("hidden");
-  panel.classList.toggle("hidden", !open);
-  if (open) setTimeout(() => { for (const [, t] of termInstances) t.fit?.fit(); }, 150);
+function toggleTerminalPanel() {
+  focusWorkspaceTerminal();
 }
 
 function bindActivityBar() {
@@ -218,7 +327,8 @@ function bindActivityBar() {
     btn.onclick = () => {
       activeSidePanel = btn.dataset.panel;
       if (activeSidePanel === "agent") {
-        document.getElementById("agent-composer-input")?.focus();
+        setAgentPanelOpen(!agentPanelOpen);
+        if (agentPanelOpen) document.getElementById("agent-composer-input")?.focus();
         return;
       }
       document.querySelectorAll(".activity-btn[data-panel]").forEach((b) => {
@@ -276,9 +386,10 @@ function bindGlobalComposer() {
   const input = document.getElementById("agent-composer-input");
   const send = document.getElementById("agent-composer-send");
   const wrap = input?.closest(".agent-composer-wrap");
-  if (!input || !send || !primaryPaneId) return;
-  const t = termInstances.get(primaryPaneId);
-  if (!t) return;
+  const ws = activeWs();
+  primaryPaneId = ws?.paneIds?.[0] || primaryPaneId;
+  const t = primaryPaneId ? termInstances.get(primaryPaneId) : null;
+  if (!input || !send || !t) return;
 
   let mentionMenu = null;
   let mentionAt = -1;
@@ -747,6 +858,8 @@ async function appendTreeDir(parentUl, dirPath, depth) {
   if (!res.ok) return;
   const maxEntries = depth === 0 ? 200 : 80;
   for (const entry of res.entries.slice(0, maxEntries)) {
+    if (TREE_SKIP.has(entry.name)) continue;
+    if (!entry.isDirectory && TREE_SKIP_FILES.test(entry.name)) continue;
     const li = document.createElement("li");
     li.className = "tree-item" + (entry.isDirectory ? " tree-dir" : " tree-file");
     li.style.paddingLeft = `${6 + depth * 12}px`;
@@ -781,38 +894,75 @@ async function renderFileTree() {
   const ul = document.getElementById("file-tree");
   if (!ul) return;
   const ws = activeWs();
-  if (!ws?.cwd) {
-    ul.innerHTML = "";
+  renderWsFolderRoots();
+  if (!ws?.named || !ws?.cwd) {
+    ul.innerHTML = `<li class="tree-empty tree-cta">
+      <p>No project folder — agents run in your home dir until you open one.</p>
+      <button type="button" class="scm-btn tree-cta-btn" id="tree-open-folder">Open folder…</button>
+      <button type="button" class="scm-btn tree-cta-btn" id="tree-add-folder">Add folder to workspace…</button>
+    </li>`;
+    document.getElementById("tree-open-folder")?.addEventListener("click", openFolder);
+    document.getElementById("tree-add-folder")?.addEventListener("click", addFolderToWorkspace);
     return;
   }
   ul.innerHTML = "";
-  if (!expandedDirs.size) expandedDirs.add(ws.cwd);
-  await appendTreeDir(ul, ws.cwd, 0);
-  if (!ul.children.length) {
-    ul.innerHTML = `<li class="tree-empty">No files</li>`;
+  const roots = [...new Set((ws.folders?.length ? ws.folders : [ws.cwd]).filter(Boolean))];
+  if (!expandedDirs.size) roots.forEach((r) => expandedDirs.add(r));
+  for (const root of roots) {
+    if (roots.length > 1) {
+      const head = document.createElement("li");
+      head.className = "tree-root-label";
+      head.textContent = root.split(/[/\\]/).pop() || root;
+      ul.appendChild(head);
+    }
+    await appendTreeDir(ul, root, 0);
   }
+  if (!ul.querySelector(".tree-item")) {
+    ul.innerHTML = `<li class="tree-empty">No files in folder</li>`;
+  }
+}
+
+function renderWsFolderRoots() {
+  const el = document.getElementById("ws-folder-roots");
+  const ws = activeWs();
+  if (!el || !ws?.named) { el?.classList.add("hidden"); return; }
+  const roots = [...new Set((ws.folders?.length ? ws.folders : [ws.cwd]).filter(Boolean))];
+  if (roots.length <= 1) { el.classList.add("hidden"); return; }
+  el.classList.remove("hidden");
+  el.innerHTML = roots.map((r) =>
+    `<div class="ws-folder-chip" title="${escHtml(r)}">${escHtml(r.split(/[/\\]/).pop())}</div>`
+  ).join("") + `<button type="button" class="ws-folder-add" id="ws-folder-add" title="Add folder">+</button>`;
+  document.getElementById("ws-folder-add")?.addEventListener("click", addFolderToWorkspace);
 }
 
 async function switchWorkspace(id) {
   if (id === state.activeWorkspace) return;
-  await killAllPanes();
+  saveAgentChat(state.activeWorkspace);
   state.activeWorkspace = id;
   persist();
   renderWorkspaces();
-  await renderPanes();
+  await ensureWorkspaceUI(activeWs());
+  showWorkspaceGrid(id);
+  restoreAgentChat(id);
   await refreshGitInfo();
   expandedDirs.clear();
   await renderFileTree();
+  populateAgentPersona();
+  bindGlobalComposer();
+  window.QuillCowork?.populateDelegateSelect();
+  updateTitlebar();
+  closeEditor();
 }
 
-async function renderPanes() {
-  const grid = document.getElementById("pane-grid");
-  const ws = activeWs();
+async function ensureWorkspaceUI(ws) {
   if (!ws) return;
+  const grid = getWsGrid(ws);
+  if (!grid) return;
 
   ws.layout = ws.layout || "grid-1x1";
   ws.panes = ws.paneIds?.length || 1;
-  grid.className = "pane-grid " + ws.layout;
+  grid.className = `pane-grid ${ws.layout || "grid-1x1"} ws-pane-grid`;
+  if (grid.dataset.wsId !== ws.id) grid.dataset.wsId = ws.id;
 
   if (!ws.paneIds?.length) {
     const paneId = `pane-${ws.id}-0`;
@@ -820,56 +970,67 @@ async function renderPanes() {
     state.panes[paneId] = { persona: "Iris", mode: "agent" };
   }
 
-  grid.innerHTML = "";
-  await killAllPanes();
-
   const split = ws.paneIds.length === 2;
-  if (split) {
-    ws.splitPct = ws.splitPct ?? 50;
-    grid.classList.add("split-h2");
-    grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
-    grid.style.gridTemplateRows = "1fr";
-  } else {
-    grid.style.gridTemplateColumns = "";
-    grid.style.gridTemplateRows = "";
-  }
-
-  for (let i = 0; i < ws.paneIds.length; i++) {
-    const paneId = ws.paneIds[i];
-    grid.appendChild(createPaneElement(paneId, ws));
-    if (split && i === 0) {
-      const gutter = document.createElement("div");
-      gutter.className = "pane-split-gutter";
-      gutter.title = "Drag to resize panes";
-      gutter.onmousedown = (e) => {
-        e.preventDefault();
-        const startX = e.clientX;
-        const startPct = ws.splitPct;
-        const onMove = (ev) => {
-          const delta = ev.clientX - startX;
-          const w = grid.clientWidth || 1;
-          ws.splitPct = Math.min(80, Math.max(20, startPct + (delta / w) * 100));
-          grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
-          for (const [, t] of termInstances) t.fit?.fit();
+  const needsDom = !ws.paneIds.every((id) => document.getElementById(`term-${id}`));
+  if (needsDom) {
+    grid.innerHTML = "";
+    if (split) {
+      ws.splitPct = ws.splitPct ?? 50;
+      grid.classList.add("split-h2");
+      grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
+    } else {
+      grid.classList.remove("split-h2");
+      grid.style.gridTemplateColumns = "";
+      grid.style.gridTemplateRows = "";
+    }
+    for (let i = 0; i < ws.paneIds.length; i++) {
+      const paneId = ws.paneIds[i];
+      grid.appendChild(createPaneElement(paneId, ws));
+      if (split && i === 0) {
+        const gutter = document.createElement("div");
+        gutter.className = "pane-split-gutter";
+        gutter.onmousedown = (e) => {
+          e.preventDefault();
+          const startX = e.clientX;
+          const startPct = ws.splitPct;
+          const onMove = (ev) => {
+            const delta = ev.clientX - startX;
+            const w = grid.clientWidth || 1;
+            ws.splitPct = Math.min(80, Math.max(20, startPct + (delta / w) * 100));
+            grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
+            fitActiveTerminals();
+          };
+          const onUp = () => {
+            persist();
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+          };
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
         };
-        const onUp = () => {
-          persist();
-          document.removeEventListener("mousemove", onMove);
-          document.removeEventListener("mouseup", onUp);
-        };
-        document.addEventListener("mousemove", onMove);
-        document.addEventListener("mouseup", onUp);
-      };
-      grid.appendChild(gutter);
+        grid.appendChild(gutter);
+      }
     }
   }
+
   for (const paneId of ws.paneIds) {
-    await mountTerminal(paneId, ws);
+    if (!termInstances.has(paneId)) await mountTerminal(paneId, ws);
   }
+}
+
+async function renderPanes() {
+  const ws = activeWs();
+  if (!ws) return;
+  await ensureWorkspaceUI(ws);
+  showWorkspaceGrid(ws.id);
+  primaryPaneId = ws.paneIds[0];
   populateAgentPersona();
   bindGlobalComposer();
   window.QuillCowork?.populateDelegateSelect();
   renderWorkspaces();
+  for (const other of state.workspaces) {
+    if (other.id !== ws.id) void ensureWorkspaceUI(other);
+  }
 }
 
 function createPaneElement(paneId, ws) {
@@ -920,7 +1081,7 @@ async function mountTerminal(paneId, ws) {
     cols: term.cols,
     rows: term.rows,
   });
-  termInstances.set(paneId, { term, fit, ptyId: id });
+  termInstances.set(paneId, { term, fit, ptyId: id, wsId: ws.id });
   term.onData((data) => window.quill.ptyWrite(id, data));
   if (paneId === primaryPaneId) bindGlobalComposer();
 
@@ -1047,14 +1208,16 @@ async function openFolder() {
     ws.cwd = folder;
     ws.named = true;
     if (!ws.folders) ws.folders = [];
-    if (!ws.folders.includes(folder)) ws.folders.push(folder);
+    if (!ws.folders.includes(folder)) ws.folders.unshift(folder);
+    ws.name = folder.split(/[/\\]/).pop() || ws.name;
     persist();
-    await killAllPanes();
-    await renderPanes();
     renderWorkspaces();
     await refreshGitInfo();
+    expandedDirs.clear();
     await renderFileTree();
     updateTitlebar();
+    updateWorkspaceHead();
+    showToast(`Workspace folder: ${ws.name}`);
   }
 }
 
@@ -1062,10 +1225,19 @@ async function addFolderToWorkspace() {
   const folder = await window.quill.pickFolder();
   if (!folder) return;
   const ws = activeWs();
-  if (!ws.folders) ws.folders = [ws.cwd];
-  if (!ws.folders.includes(folder)) ws.folders.push(folder);
+  if (!ws.cwd) {
+    ws.cwd = folder;
+    ws.named = true;
+    ws.folders = [folder];
+    ws.name = folder.split(/[/\\]/).pop() || ws.name;
+  } else {
+    if (!ws.folders) ws.folders = [ws.cwd];
+    if (!ws.folders.includes(folder)) ws.folders.push(folder);
+  }
   persist();
   renderWorkspaces();
+  await renderFileTree();
+  showToast("Folder added to workspace");
 }
 
 async function openWorkspaceFile() {
@@ -1098,7 +1270,7 @@ function addWorkspace() {
     id,
     name: `Workspace ${i + 1}`,
     color: bootstrap.rainbow[i % bootstrap.rainbow.length],
-    cwd: activeWs()?.cwd || "",
+    cwd: "",
     folders: [],
     panes: 1,
     layout: "grid-1x1",
@@ -1108,7 +1280,7 @@ function addWorkspace() {
   state.panes[paneId] = { persona: bootstrap.personas[i % bootstrap.personas.length], mode: "agent" };
   state.activeWorkspace = id;
   persist();
-  switchWorkspace(id);
+  void switchWorkspace(id);
 }
 
 function persist() {
@@ -1174,7 +1346,8 @@ function handleAction(action) {
     "settings-appearance": () => openSettings("appearance"),
     "mcp-settings": () => openSettings("mcp"),
     "save-file": () => saveEditor(),
-    "toggle-terminal": () => toggleTerminalPanel(),
+    "toggle-terminal": () => focusWorkspaceTerminal(),
+    "focus-terminal": () => focusWorkspaceTerminal(),
     "toggle-browser": () => toggleBrowserPanel(),
     quit: () => window.quill.quit(),
     palette: openPalette,
@@ -1208,7 +1381,11 @@ function bindEvents() {
     if (e.ctrlKey && e.key === "p") { e.preventDefault(); openPalette(); }
     if (e.ctrlKey && e.key === "o") { e.preventDefault(); openFolder(); }
     if (e.ctrlKey && e.key === "`") { e.preventDefault(); toggleTerminalPanel(); }
-    if (e.ctrlKey && e.key === "l") { e.preventDefault(); document.getElementById("agent-composer-input")?.focus(); }
+    if (e.ctrlKey && e.key === "l") {
+      e.preventDefault();
+      setAgentPanelOpen(!agentPanelOpen);
+      if (agentPanelOpen) document.getElementById("agent-composer-input")?.focus();
+    }
     if (e.ctrlKey && e.shiftKey && e.key === "F") { e.preventDefault(); document.getElementById("global-search")?.classList.remove("hidden"); document.getElementById("global-search-input")?.focus(); }
     if (e.ctrlKey && e.shiftKey && e.key === "I") { cycleTheme(); }
     if (e.key === "Escape") { closePalette(); closeSettings(); }

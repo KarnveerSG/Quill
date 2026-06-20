@@ -65,6 +65,7 @@
           <button type="button" class="panel-action" id="add-workspace" title="Add workspace">+</button>
         </div>
         <ul id="workspace-list" class="ws-compact"></ul>
+        <div id="ws-folder-roots" class="ws-folder-roots hidden"></div>
         <ul id="file-tree" class="file-tree"></ul>
       </div>
       <div class="panel-view" data-view="scm">
@@ -94,16 +95,28 @@
     </aside>
 
     <main class="center-panel">
-      <div id="empty-state" class="empty-state">
+      <div id="empty-state" class="empty-state hidden">
         <div class="empty-logo">Q</div>
+        <p class="empty-hint">Each workspace runs its own isolated agent.</p>
+        <button type="button" class="btn-primary" data-action="open-folder">Open folder</button>
         <ul class="shortcut-list">
-          <li><span>Open folder</span><kbd>Ctrl+O</kbd></li>
           <li><span>Command palette</span><kbd>Ctrl+P</kbd></li>
-          <li><span>Save file</span><kbd>Ctrl+S</kbd></li>
-          <li><span>Toggle terminal</span><kbd>Ctrl+`</kbd></li>
-          <li><span>Focus agent</span><kbd>Ctrl+L</kbd></li>
+          <li><span>Switch workspace</span><kbd>Click tab left</kbd></li>
+          <li><span>Toggle agent panel</span><kbd>Ctrl+L</kbd></li>
         </ul>
       </div>
+      <div id="workspace-center-head" class="workspace-center-head">
+        <div class="ws-head-info">
+          <span class="ws-head-dot" id="ws-head-dot"></span>
+          <span id="ws-center-name">Workspace</span>
+          <span id="ws-center-persona" class="ws-center-meta"></span>
+        </div>
+        <div class="ws-head-actions">
+          <button type="button" class="ws-head-btn" id="ws-add-terminal" title="New terminal pane">+ Terminal</button>
+          <button type="button" class="ws-head-btn" data-action="open-folder" title="Set folder">Open folder</button>
+        </div>
+      </div>
+      <div id="workspace-stage" class="workspace-stage"></div>
       <div id="editor-area" class="editor-area hidden">
         <div id="batch-review-bar" class="batch-review-bar hidden">
           <span class="batch-count">0 files changed by agent</span>
@@ -132,13 +145,6 @@
         <div id="monaco-editor" class="editor-monaco"></div>
         <div id="monaco-diff" class="editor-monaco hidden"></div>
       </div>
-      <div id="terminal-panel" class="terminal-panel hidden">
-        <div class="terminal-panel-head">
-          <span>Terminal</span>
-          <button type="button" id="terminal-panel-close">×</button>
-        </div>
-        <div id="pane-grid" class="pane-grid grid-1x1"></div>
-      </div>
       <div id="browser-panel" class="browser-panel hidden">
         <div class="browser-panel-head">
           <span id="browser-url">Browser</span>
@@ -160,7 +166,9 @@
     <aside class="agent-panel" id="agent-panel">
       <header class="agent-header">
         <span class="agent-title">Agent</span>
+        <span class="agent-ws-label" id="agent-ws-label"></span>
         <select class="pane-persona-select" id="agent-persona" title="Persona"></select>
+        <button type="button" class="agent-icon-btn agent-header-btn" id="agent-panel-hide" title="Hide panel">×</button>
         <span class="pane-activity" id="agent-activity"></span>
       </header>
       <div id="agent-plan" class="agent-plan hidden">
@@ -173,11 +181,12 @@
           <textarea id="agent-composer-input" rows="1" placeholder="Ask Quill… (@ for files, Shift+Enter newline)" spellcheck="false"></textarea>
           <button type="button" class="agent-send" id="agent-composer-send" title="Send">↑</button>
         </div>
-        <div class="agent-composer-meta">
-          <select id="agent-delegate" class="agent-delegate" title="Send to pane"></select>
-          <span>Cowork mode</span>
-          <button type="button" class="agent-link" data-action="toggle-terminal">Terminal</button>
-          <button type="button" class="agent-link" data-action="toggle-browser">Browser</button>
+        <div class="agent-toolbar">
+          <select id="agent-delegate" class="agent-pill-select" title="Send to pane"></select>
+          <div class="agent-toolbar-actions">
+            <button type="button" class="agent-icon-btn" data-action="focus-terminal" title="Focus terminal">▭</button>
+            <button type="button" class="agent-icon-btn" data-action="toggle-browser" title="Browser">⌁</button>
+          </div>
         </div>
       </div>
     </aside>

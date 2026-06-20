@@ -67,7 +67,8 @@ async function main() {
       agentDelegate: !!document.getElementById("agent-delegate"),
       palette: !!document.getElementById("palette"),
       branchSelect: !!document.getElementById("status-branch"),
-      terminalPanel: !!document.getElementById("terminal-panel"),
+      workspaceStage: !!document.getElementById("workspace-stage"),
+      workspaceHead: !!document.getElementById("workspace-center-head"),
     }));
     for (const [k, v] of Object.entries(chrome)) {
       if (v) pass(`ui:${k}`);
@@ -188,8 +189,8 @@ async function main() {
     else fail("monaco load", monacoOk.error || "no editor");
 
     await win.evaluate(() => {
-      const panel = document.getElementById("terminal-panel");
-      if (panel?.classList.contains("hidden")) panel.classList.remove("hidden");
+      const panel = document.getElementById("workspace-stage");
+      if (panel) panel.scrollIntoView?.();
     });
     await win.keyboard.press("Control+`");
     await win.waitForTimeout(10000);
