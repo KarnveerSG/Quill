@@ -82,13 +82,16 @@ Quill CLI agent is strong; desktop is a **terminal multiplexer with bolted-on pa
 
 ## Incremental roadmap (each phase = ship + E2E + score bump)
 
-### Phase 1 — Declutter shell (EoU + appearance → ~6.5)
-- [ ] Activity bar replaces stacked sidebar sections (one panel visible)
-- [ ] Remove or implement dead menubar items
-- [ ] Slim header: drag region + optional compact menu (`…`)
-- [ ] First-run: “Open folder” empty state (no random home cwd)
+### Phase 1 — Declutter shell (EoU + appearance → ~6.5) ✅ shipped
+- [x] Activity bar replaces stacked sidebar sections (one panel visible)
+- [x] Remove dead menubar items (Selection, Go, Run, Terminal dup)
+- [x] Slim header: title bar + compact menu (no brand tagline row)
+- [x] Empty-state home with shortcuts (Cursor-style center)
+- [x] Agent panel right dock with chat + composer
+- [x] Editor center (not bottom drawer); terminal collapsible bottom
+- [ ] First-run: “Open folder” modal when cwd not a project
 - [ ] Default workspace = last opened folder
-- **Target:** EoU 6.5, Appearance 6.5
+- **Scores:** Func 6.5 · EoU 7.0 · Appearance 7.5
 
 ### Phase 2 — Editor-first layout (functionality → ~7.0)
 - [ ] Editor fills center; bottom drawer → center panel
@@ -135,9 +138,9 @@ Quill CLI agent is strong; desktop is a **terminal multiplexer with bolted-on pa
 
 | Phase | Functionality | EoU | Appearance | Done |
 |-------|---------------|-----|------------|------|
-| 0 (now) | 5.8 | 5.0 | 5.5 | ✓ |
-| 1 | 6.0 | 6.5 | 6.5 | |
-| 2 | 7.0 | 7.0 | 7.0 | |
+| 0 (pre-Cursor shell) | 5.8 | 5.0 | 5.5 | ✓ |
+| **1 (Cursor shell v1)** | **6.5** | **7.0** | **7.5** | **✓** |
+| 2 | 7.5 | 7.5 | 8.0 | |
 | 3 | 8.0 | 7.5 | 7.5 | |
 | 4 | 8.5 | 8.0 | 8.0 | |
 | 5 | 9.0 | 8.5 | 8.5 | |

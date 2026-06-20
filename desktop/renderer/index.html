@@ -9,11 +9,7 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body class="theme-dark">
-  <header class="app-chrome">
-    <div class="brand-row">
-      <span class="brand-name">Quill</span>
-      <span class="brand-tag">CODE BEAUTIFUL</span>
-    </div>
+  <header class="titlebar">
     <nav class="menubar" id="menubar">
       <div class="menu-item" data-menu="file">
         <button type="button" class="menu-trigger">File</button>
@@ -30,22 +26,14 @@
         <button type="button" class="menu-trigger">Edit</button>
         <div class="menu-dropdown hidden">
           <button type="button" data-action="palette">Command Palette… <span>Ctrl+P</span></button>
+          <button type="button" data-action="save-file">Save <span>Ctrl+S</span></button>
         </div>
       </div>
-      <div class="menu-item" data-menu="selection"><button type="button" class="menu-trigger">Selection</button></div>
       <div class="menu-item" data-menu="view">
         <button type="button" class="menu-trigger">View</button>
         <div class="menu-dropdown hidden">
-          <button type="button" data-action="new-pane">New Terminal</button>
+          <button type="button" data-action="toggle-terminal">Terminal</button>
           <button type="button" data-action="settings-appearance">Themes…</button>
-        </div>
-      </div>
-      <div class="menu-item" data-menu="go"><button type="button" class="menu-trigger">Go</button></div>
-      <div class="menu-item" data-menu="run"><button type="button" class="menu-trigger">Run</button></div>
-      <div class="menu-item" data-menu="terminal">
-        <button type="button" class="menu-trigger">Terminal</button>
-        <div class="menu-dropdown hidden">
-          <button type="button" data-action="new-pane">New Terminal</button>
         </div>
       </div>
       <div class="menu-item" data-menu="help">
@@ -55,22 +43,33 @@
         </div>
       </div>
     </nav>
+    <span class="titlebar-title" id="titlebar-title">Quill</span>
   </header>
 
-  <div class="layout">
-    <aside class="sidebar">
-      <div class="sidebar-title">WORKSPACES</div>
-      <ul id="workspace-list"></ul>
-      <button type="button" class="add-ws" id="add-workspace">+ Workspace</button>
-      <details class="file-tree-panel" id="file-tree-panel" open>
-        <summary class="sidebar-title">FILES</summary>
+  <div class="app-shell">
+    <nav class="activity-bar" id="activity-bar">
+      <button type="button" class="activity-btn active" data-panel="explorer" title="Explorer">◫</button>
+      <button type="button" class="activity-btn" data-panel="scm" title="Source Control">⑂</button>
+      <button type="button" class="activity-btn" data-panel="search" title="Search">⌕</button>
+      <button type="button" class="activity-btn" data-panel="agent" title="Agent">✦</button>
+      <button type="button" class="activity-btn activity-spacer" disabled aria-hidden="true"></button>
+      <button type="button" class="activity-btn" data-panel="settings" title="Settings">⚙</button>
+    </nav>
+
+    <aside class="side-panel" id="side-panel">
+      <div class="panel-view active" data-view="explorer">
+        <div class="panel-header">
+          <span>EXPLORER</span>
+          <button type="button" class="panel-action" id="add-workspace" title="Add workspace">+</button>
+        </div>
+        <ul id="workspace-list" class="ws-compact"></ul>
         <ul id="file-tree" class="file-tree"></ul>
-      </details>
-      <details class="scm-panel" id="scm-panel" open>
-        <summary class="sidebar-title">SOURCE CONTROL</summary>
+      </div>
+      <div class="panel-view" data-view="scm">
+        <div class="panel-header"><span>SOURCE CONTROL</span></div>
         <div class="scm-toolbar">
-          <button type="button" class="scm-btn" id="scm-stage-all" title="Stage all">Stage all</button>
-          <button type="button" class="scm-btn scm-icon-btn" id="scm-refresh" title="Refresh">↻</button>
+          <button type="button" class="scm-btn" id="scm-stage-all">Stage all</button>
+          <button type="button" class="scm-btn scm-icon-btn" id="scm-refresh">↻</button>
         </div>
         <ul id="scm-files" class="scm-files"></ul>
         <div class="scm-commit">
@@ -78,34 +77,82 @@
           <button type="button" class="scm-btn scm-commit-btn" id="scm-commit">Commit</button>
         </div>
         <p class="scm-status-msg" id="scm-status"></p>
-      </details>
+      </div>
+      <div class="panel-view" data-view="search">
+        <div class="panel-header"><span>SEARCH</span></div>
+        <input type="text" id="side-search" class="side-search-input" placeholder="Search files…" autocomplete="off" />
+        <ul id="search-results" class="search-results"></ul>
+      </div>
+      <div class="panel-view" data-view="settings">
+        <div class="panel-header"><span>SETTINGS</span></div>
+        <button type="button" class="side-link-btn" data-action="settings">Open settings…</button>
+        <button type="button" class="side-link-btn" data-action="settings-appearance">Themes…</button>
+        <button type="button" class="side-link-btn" data-action="mcp-settings">MCP…</button>
+      </div>
     </aside>
-    <main class="workspace">
-      <div id="pane-grid" class="pane-grid grid-1x1"></div>
-      <div id="editor-drawer" class="editor-drawer hidden">
-        <div class="editor-resize-handle" id="editor-resize-handle" title="Drag to resize"></div>
-        <header class="editor-header">
-          <span id="editor-title">Editor</span>
-          <span id="editor-dirty" class="editor-dirty hidden">●</span>
-          <div class="editor-tabs">
-            <button type="button" class="editor-tab active" data-tab="file">File</button>
-            <button type="button" class="editor-tab" data-tab="diff">Diff</button>
+
+    <main class="center-panel">
+      <div id="empty-state" class="empty-state">
+        <div class="empty-logo">Q</div>
+        <ul class="shortcut-list">
+          <li><span>Open folder</span><kbd>Ctrl+O</kbd></li>
+          <li><span>Command palette</span><kbd>Ctrl+P</kbd></li>
+          <li><span>Save file</span><kbd>Ctrl+S</kbd></li>
+          <li><span>Toggle terminal</span><kbd>Ctrl+`</kbd></li>
+          <li><span>Focus agent</span><kbd>Ctrl+L</kbd></li>
+        </ul>
+      </div>
+      <div id="editor-area" class="editor-area hidden">
+        <div class="editor-tabbar">
+          <div class="editor-tabs-row" id="editor-tabs-row">
+            <button type="button" class="file-tab active" id="editor-tab-main">
+              <span id="editor-title">Untitled</span>
+              <span id="editor-dirty" class="editor-dirty hidden">●</span>
+            </button>
           </div>
-          <button type="button" class="editor-save btn-primary" id="editor-save" title="Save (Ctrl+S)">Save</button>
-          <button type="button" class="editor-close" id="editor-close" title="Close">×</button>
-        </header>
+          <div class="editor-tab-actions">
+            <button type="button" class="editor-tab-btn" data-tab="file">Edit</button>
+            <button type="button" class="editor-tab-btn" data-tab="diff">Diff</button>
+            <button type="button" class="editor-tab-btn" id="editor-save" title="Save">Save</button>
+            <button type="button" class="editor-tab-btn" id="editor-close" title="Close">×</button>
+          </div>
+        </div>
         <div id="monaco-editor" class="editor-monaco"></div>
         <div id="monaco-diff" class="editor-monaco hidden"></div>
       </div>
+      <div id="terminal-panel" class="terminal-panel hidden">
+        <div class="terminal-panel-head">
+          <span>Terminal</span>
+          <button type="button" id="terminal-panel-close">×</button>
+        </div>
+        <div id="pane-grid" class="pane-grid grid-1x1"></div>
+      </div>
       <footer class="statusbar">
-        <span id="status-provider">Quill agent</span>
-        <select id="status-branch" class="status-branch" title="Switch branch"></select>
+        <select id="status-branch" class="status-branch" title="Branch"></select>
         <span id="status-git-changes"></span>
-        <span id="status-hints">Ctrl+P commands · Ctrl+Shift+I theme</span>
         <span id="status-file"></span>
-        <span id="status-path"></span>
+        <span class="status-right" id="status-path"></span>
       </footer>
     </main>
+
+    <aside class="agent-panel" id="agent-panel">
+      <header class="agent-header">
+        <span class="agent-title">Agent</span>
+        <select class="pane-persona-select" id="agent-persona" title="Persona"></select>
+        <span class="pane-activity" id="agent-activity"></span>
+      </header>
+      <div id="agent-chat" class="agent-chat"></div>
+      <div class="agent-composer-wrap">
+        <div class="agent-composer">
+          <textarea id="agent-composer-input" rows="1" placeholder="Ask Quill… (@ for files, Shift+Enter newline)" spellcheck="false"></textarea>
+          <button type="button" class="agent-send" id="agent-composer-send" title="Send">↑</button>
+        </div>
+        <div class="agent-composer-meta">
+          <span>Agent mode</span>
+          <button type="button" class="agent-link" data-action="toggle-terminal">Terminal</button>
+        </div>
+      </div>
+    </aside>
   </div>
 
   <div id="settings" class="settings hidden">

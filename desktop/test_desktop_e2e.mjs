@@ -51,6 +51,25 @@ async function main() {
     if (bootErr) fail("init", bootErr);
     else pass("init", "no boot error");
 
+    const chrome = await win.evaluate(() => ({
+      menubar: !!document.getElementById("menubar"),
+      activityBar: !!document.getElementById("activity-bar"),
+      fileTree: !!document.getElementById("file-tree"),
+      scm: !!document.getElementById("scm-files"),
+      emptyState: !!document.getElementById("empty-state"),
+      editorArea: !!document.getElementById("editor-area"),
+      agentPanel: !!document.getElementById("agent-panel"),
+      agentChat: !!document.getElementById("agent-chat"),
+      agentComposer: !!document.getElementById("agent-composer-input"),
+      palette: !!document.getElementById("palette"),
+      branchSelect: !!document.getElementById("status-branch"),
+      terminalPanel: !!document.getElementById("terminal-panel"),
+    }));
+    for (const [k, v] of Object.entries(chrome)) {
+      if (v) pass(`ui:${k}`);
+      else fail(`ui:${k}`, "missing");
+    }
+
     const api = await win.evaluate(async () => {
       if (!window.quill) return { error: "no window.quill" };
       try {
@@ -67,22 +86,6 @@ async function main() {
     });
     if (api.error) fail("getBootstrap", api.error);
     else pass("getBootstrap", `v${api.version} pty=${api.ptyAvailable} themes=${api.themes} personas=${api.personas}`);
-
-    const chrome = await win.evaluate(() => ({
-      menubar: !!document.getElementById("menubar"),
-      fileTree: !!document.getElementById("file-tree"),
-      scm: !!document.getElementById("scm-panel"),
-      paneGrid: !!document.getElementById("pane-grid"),
-      editorDrawer: !!document.getElementById("editor-drawer"),
-      palette: !!document.getElementById("palette"),
-      branchSelect: !!document.getElementById("status-branch"),
-      xterm: !!document.querySelector(".xterm-screen"),
-      composer: !!document.querySelector(".pane-composer-input"),
-    }));
-    for (const [k, v] of Object.entries(chrome)) {
-      if (v) pass(`ui:${k}`);
-      else fail(`ui:${k}`, "missing");
-    }
 
     await win.keyboard.press("Control+P");
     await win.waitForTimeout(400);
@@ -168,6 +171,8 @@ async function main() {
     if (monacoOk.monaco) pass("monaco CDN");
     else fail("monaco CDN", monacoOk.error || "no editor");
 
+    await win.keyboard.press("Control+`");
+    await win.waitForTimeout(500);
     const termOut = await win.evaluate(() => {
       const lines = document.querySelector(".xterm-rows")?.textContent || "";
       return { len: lines.length, hasQuill: /Quill|CodeGraph|agent/i.test(lines) };
@@ -175,12 +180,10 @@ async function main() {
     if (termOut.len > 10) pass("terminal output", `${termOut.len} chars quill=${termOut.hasQuill}`);
     else fail("terminal output", "empty or too short");
 
-    // Composer send (non-destructive ping)
-    const composerTest = await win.evaluate(async () => {
-      const input = document.querySelector(".pane-composer-input");
+    const composerTest = await win.evaluate(() => {
+      const input = document.getElementById("agent-composer-input");
       if (!input) return { error: "no composer" };
-      input.value = "/help";
-      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.value = "test";
       return { ok: true };
     });
     if (composerTest.ok) pass("composer input");

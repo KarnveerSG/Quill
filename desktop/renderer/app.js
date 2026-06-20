@@ -13,6 +13,10 @@ let activeEditorTab = "file";
 let bootstrap = null;
 let settingsSection = "appearance";
 let mcpDraft = { servers: {} };
+let activeSidePanel = "explorer";
+let agentChatLineBuffer = "";
+let primaryPaneId = null;
+let agentChatFlushTimer = null;
 
 function getCommands() {
   const cmds = [
@@ -43,7 +47,7 @@ function createFitAddon() {
 
 function termTheme() {
   const t = bootstrap?.themes?.[state.theme];
-  return t?.terminal || { background: "#14141c", foreground: "#e8e8f0", cursor: "#7eb8ff" };
+  return t?.terminal || { background: "#0b0b0b", foreground: "#cccccc", cursor: "#3794ff" };
 }
 
 async function init() {
@@ -64,7 +68,16 @@ async function init() {
   bindMenubar();
   bindEditorDrawer();
   bindScm();
+  bindActivityBar();
+  bindSideSearch();
   void ensureMonaco();
+  populateAgentPersona();
+  updateTitlebar();
+  appendAgentChat("system", "Quill agent ready — open a folder or ask a question.");
+  document.getElementById("terminal-panel-close")?.addEventListener("click", () => toggleTerminalPanel(false));
+  document.querySelectorAll("[data-action='toggle-terminal']").forEach((el) => {
+    el.addEventListener("click", (e) => { e.preventDefault(); toggleTerminalPanel(); });
+  });
 
   document.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key === "s") {
@@ -80,6 +93,7 @@ async function init() {
         pulseActivity(paneId);
       }
     }
+    appendAgentStream(data);
     const editMatch = data.match(/\[QUILL_EDIT:([^\]\r\n]+)\]/);
     if (editMatch) void onWorkspaceFileChanged(resolveWsPath(editMatch[1]));
   });
@@ -108,6 +122,168 @@ function resetDefaultState() {
   }];
   state.activeWorkspace = "ws-main";
   state.panes = { [paneId]: { persona: "Iris", mode: "agent" } };
+}
+
+function stripAnsi(text) {
+  return String(text || "")
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
+    .replace(/\x1b\][^\x07]*(\x07|\x1b\\)/g, "")
+    .replace(/\r/g, "");
+}
+
+function appendAgentChat(role, text) {
+  const box = document.getElementById("agent-chat");
+  if (!box || !text?.trim()) return;
+  const el = document.createElement("div");
+  el.className = `chat-msg ${role}`;
+  el.textContent = text.trim();
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
+function appendAgentStream(raw) {
+  agentChatLineBuffer += stripAnsi(raw);
+  clearTimeout(agentChatFlushTimer);
+  agentChatFlushTimer = setTimeout(() => {
+    const lines = agentChatLineBuffer.split("\n").map((l) => l.trim()).filter(Boolean);
+    agentChatLineBuffer = "";
+    const chunk = lines.slice(-8).join("\n");
+    if (chunk.length > 2) appendAgentChat("agent", chunk);
+  }, 400);
+}
+
+function updateTitlebar() {
+  const ws = activeWs();
+  const folder = ws?.cwd ? ws.cwd.split(/[/\\]/).pop() : "Quill";
+  const file = editorFilePath ? editorFilePath.split(/[/\\]/).pop() : "";
+  const el = document.getElementById("titlebar-title");
+  if (el) el.textContent = file ? `${folder} — ${file}` : folder;
+}
+
+function toggleTerminalPanel(show) {
+  const panel = document.getElementById("terminal-panel");
+  if (!panel) return;
+  const open = typeof show === "boolean" ? show : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+  if (open) setTimeout(() => { for (const [, t] of termInstances) t.fit?.fit(); }, 150);
+}
+
+function bindActivityBar() {
+  document.querySelectorAll(".activity-btn[data-panel]").forEach((btn) => {
+    btn.onclick = () => {
+      activeSidePanel = btn.dataset.panel;
+      if (activeSidePanel === "agent") {
+        document.getElementById("agent-composer-input")?.focus();
+        return;
+      }
+      document.querySelectorAll(".activity-btn[data-panel]").forEach((b) => {
+        b.classList.toggle("active", b.dataset.panel === activeSidePanel);
+      });
+      document.querySelectorAll(".panel-view").forEach((p) => {
+        p.classList.toggle("active", p.dataset.view === activeSidePanel);
+      });
+    };
+  });
+  document.querySelectorAll(".side-link-btn[data-action]").forEach((btn) => {
+    btn.onclick = () => handleAction(btn.dataset.action);
+  });
+}
+
+function bindSideSearch() {
+  const input = document.getElementById("side-search");
+  const ul = document.getElementById("search-results");
+  if (!input || !ul) return;
+  let timer = null;
+  input.oninput = () => {
+    clearTimeout(timer);
+    timer = setTimeout(async () => {
+      const q = input.value.trim();
+      if (q.length < 2) { ul.innerHTML = ""; return; }
+      const ws = activeWs();
+      const res = await window.quill.searchFiles({ cwd: ws?.cwd, query: q, limit: 30 });
+      ul.innerHTML = (res.files || []).map((f) =>
+        `<li data-path="${escHtml(f.path)}">${escHtml(f.rel)}</li>`
+      ).join("");
+      ul.querySelectorAll("li").forEach((li) => {
+        li.onclick = () => openFileInEditor(li.dataset.path);
+      });
+    }, 150);
+  };
+}
+
+function populateAgentPersona() {
+  const sel = document.getElementById("agent-persona");
+  const ws = activeWs();
+  const paneId = ws?.paneIds?.[0];
+  if (!sel || !bootstrap?.personas || !paneId) return;
+  const meta = state.panes[paneId] || { persona: "Iris" };
+  sel.innerHTML = bootstrap.personas.map((p) =>
+    `<option value="${escHtml(p)}"${p === meta.persona ? " selected" : ""}>${escHtml(p)}</option>`
+  ).join("");
+  sel.onchange = async () => {
+    state.panes[paneId].persona = sel.value;
+    persist();
+    await remountPane(paneId);
+  };
+}
+
+function bindGlobalComposer() {
+  const input = document.getElementById("agent-composer-input");
+  const send = document.getElementById("agent-composer-send");
+  const wrap = input?.closest(".agent-composer-wrap");
+  if (!input || !send || !primaryPaneId) return;
+  const t = termInstances.get(primaryPaneId);
+  if (!t) return;
+
+  let mentionMenu = null;
+  let mentionAt = -1;
+  const hideMentionMenu = () => { mentionMenu?.remove(); mentionMenu = null; mentionAt = -1; };
+
+  const submit = () => {
+    const text = input.value.trim();
+    if (!text) return;
+    hideMentionMenu();
+    appendAgentChat("user", text);
+    window.quill.ptyWrite(t.ptyId, text + "\r");
+    input.value = "";
+    input.style.height = "auto";
+  };
+
+  send.onclick = submit;
+  input.onkeydown = (e) => {
+    if (e.key === "Escape") hideMentionMenu();
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); submit(); }
+  };
+  input.oninput = () => {
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 120)}px`;
+    const val = input.value;
+    const at = val.lastIndexOf("@");
+    if (at < 0 || (at > 0 && !/\s/.test(val[at - 1]))) { hideMentionMenu(); return; }
+    mentionAt = at;
+    void (async () => {
+      const ws = activeWs();
+      if (!ws?.cwd) return;
+      hideMentionMenu();
+      const res = await window.quill.searchFiles({ cwd: ws.cwd, query: val.slice(at + 1), limit: 8 });
+      if (!res.files?.length) return;
+      mentionMenu = document.createElement("div");
+      mentionMenu.className = "mention-menu";
+      res.files.forEach((f) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "mention-item";
+        btn.innerHTML = `${escHtml(f.name)}<small>${escHtml(f.rel)}</small>`;
+        btn.onclick = () => {
+          input.value = `${input.value.slice(0, mentionAt)}@${f.rel} `;
+          hideMentionMenu();
+          input.focus();
+        };
+        mentionMenu.appendChild(btn);
+      });
+      wrap?.querySelector(".agent-composer")?.appendChild(mentionMenu);
+    })();
+  };
 }
 
 function activeWs() {
@@ -450,55 +626,30 @@ async function onWorkspaceFileChanged(changedPath) {
 }
 
 function bindEditorDrawer() {
-  const closeBtn = document.getElementById("editor-close");
-  if (closeBtn) closeBtn.onclick = () => closeEditor();
+  document.getElementById("editor-close")?.addEventListener("click", () => closeEditor());
   document.getElementById("editor-save")?.addEventListener("click", () => void saveEditor());
-  document.querySelectorAll(".editor-tab").forEach((tab) => {
+  document.querySelectorAll(".editor-tab-btn[data-tab]").forEach((tab) => {
     tab.onclick = () => void setEditorTab(tab.dataset.tab);
   });
-  const handle = document.getElementById("editor-resize-handle");
-  const drawer = document.getElementById("editor-drawer");
-  if (handle && drawer) {
-    let startY = 0;
-    let startH = 0;
-    handle.onmousedown = (e) => {
-      e.preventDefault();
-      startY = e.clientY;
-      startH = drawer.offsetHeight;
-      const onMove = (ev) => {
-        const h = Math.min(Math.max(startY - ev.clientY + startH, 120), window.innerHeight * 0.7);
-        drawer.style.maxHeight = `${h}px`;
-        drawer.style.height = `${h}px`;
-        monacoEditor?.layout();
-        monacoDiff?.layout();
-      };
-      const onUp = () => {
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      };
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    };
-  }
 }
 
 function closeEditor() {
   editorFilePath = null;
   editorDirty = false;
-  document.getElementById("editor-drawer")?.classList.add("hidden");
+  document.getElementById("editor-area")?.classList.add("hidden");
+  document.getElementById("empty-state")?.classList.remove("hidden");
+  updateTitlebar();
 }
 
 async function setEditorTab(tab) {
   activeEditorTab = tab;
-  document.querySelectorAll(".editor-tab").forEach((el) => {
+  document.querySelectorAll(".editor-tab-btn[data-tab]").forEach((el) => {
     el.classList.toggle("active", el.dataset.tab === tab);
   });
   document.getElementById("monaco-editor")?.classList.toggle("hidden", tab !== "file");
   document.getElementById("monaco-diff")?.classList.toggle("hidden", tab !== "diff");
   if (tab === "diff") await loadDiffView();
-  else {
-    monacoEditor?.layout();
-  }
+  else monacoEditor?.layout();
 }
 
 async function openFileInEditor(filePath) {
@@ -510,18 +661,17 @@ async function openFileInEditor(filePath) {
   await ensureMonaco();
   editorFilePath = filePath;
   editorDirty = false;
-  const drawer = document.getElementById("editor-drawer");
   const title = document.getElementById("editor-title");
-  if (!drawer || !monacoEditor) return;
-  drawer.classList.remove("hidden");
+  if (!monacoEditor) return;
+  document.getElementById("empty-state")?.classList.add("hidden");
+  document.getElementById("editor-area")?.classList.remove("hidden");
   if (title) title.textContent = filePath.split(/[/\\]/).pop() || filePath;
-  const lang = guessMonacoLang(filePath);
-  monacoEditor.setModel(monaco.editor.createModel(res.content, lang));
+  monacoEditor.setModel(monaco.editor.createModel(res.content, guessMonacoLang(filePath)));
   updateEditorDirty();
+  updateTitlebar();
   await setEditorTab("file");
   const fileStatus = document.getElementById("status-file");
   if (fileStatus) fileStatus.textContent = filePath;
-  title?.querySelector(".file-changed-badge")?.remove();
   document.querySelectorAll(".tree-item.tree-file").forEach((el) => {
     el.classList.toggle("selected", el.dataset.path === filePath);
   });
@@ -650,42 +800,18 @@ async function renderPanes() {
   for (const paneId of ws.paneIds) {
     await mountTerminal(paneId, ws);
   }
+  populateAgentPersona();
+  bindGlobalComposer();
   renderWorkspaces();
 }
 
 function createPaneElement(paneId, ws) {
   const meta = state.panes[paneId] || { persona: "Iris", mode: "agent" };
   state.panes[paneId] = meta;
-  const personas = bootstrap?.personas || ["Iris"];
-  const personaOptions = personas.map((p) =>
-    `<option value="${escHtml(p)}"${p === meta.persona ? " selected" : ""}>${escHtml(p)}</option>`
-  ).join("");
+  primaryPaneId = paneId;
   const el = document.createElement("div");
   el.className = "pane";
-  el.innerHTML = `
-    <div class="pane-header">
-      <span class="pane-activity" id="activity-${paneId}"></span>
-      <select class="pane-persona-select" id="persona-${paneId}" title="Persona">${personaOptions}</select>
-      <span class="pane-mode">Quill agent</span>
-      ${ws.paneIds.length > 1 ? `<button type="button" class="pane-close" title="Close pane">×</button>` : ""}
-    </div>
-    <div class="pane-composer">
-      <input type="text" class="pane-composer-input" id="composer-${paneId}" placeholder="Ask Quill…" autocomplete="off" spellcheck="false" />
-      <button type="button" class="pane-composer-send" id="composer-send-${paneId}">Send</button>
-    </div>
-    <div class="pane-term" id="term-${paneId}"></div>
-    <div class="pane-footer">${ws.cwd || ""}</div>`;
-  const close = el.querySelector(".pane-close");
-  if (close) close.onclick = () => removePane(paneId);
-  const personaSelect = el.querySelector(".pane-persona-select");
-  if (personaSelect) {
-    personaSelect.onchange = async () => {
-      meta.persona = personaSelect.value;
-      state.panes[paneId] = meta;
-      persist();
-      await remountPane(paneId);
-    };
-  }
+  el.innerHTML = `<div class="pane-term" id="term-${paneId}"></div>`;
   return el;
 }
 
@@ -729,7 +855,7 @@ async function mountTerminal(paneId, ws) {
   });
   termInstances.set(paneId, { term, fit, ptyId: id });
   term.onData((data) => window.quill.ptyWrite(id, data));
-  bindComposer(paneId, id);
+  if (paneId === primaryPaneId) bindGlobalComposer();
 
   const ro = new ResizeObserver(() => {
     if (fit) fit.fit();
@@ -859,6 +985,7 @@ async function openFolder() {
     renderWorkspaces();
     await refreshGitInfo();
     await renderFileTree();
+    updateTitlebar();
   }
 }
 
@@ -948,8 +1075,11 @@ function handleAction(action) {
     "open-workspace": openWorkspaceFile,
     "open-folder": openFolder,
     "add-folder": addFolderToWorkspace,
-    settings: () => openSettings("integrations"),
+    settings: () => openSettings("appearance"),
     "settings-appearance": () => openSettings("appearance"),
+    "mcp-settings": () => openSettings("mcp"),
+    "save-file": () => saveEditor(),
+    "toggle-terminal": () => toggleTerminalPanel(),
     quit: () => window.quill.quit(),
     palette: openPalette,
     "new-pane": addPane,
@@ -976,10 +1106,13 @@ function bindScm() {
 }
 
 function bindEvents() {
-  document.getElementById("add-workspace").onclick = addWorkspace;
-  document.getElementById("settings-close").onclick = closeSettings;
+  document.getElementById("add-workspace")?.addEventListener("click", addWorkspace);
+  document.getElementById("settings-close")?.addEventListener("click", closeSettings);
   document.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "p") { e.preventDefault(); openPalette(); }
+    if (e.ctrlKey && e.key === "o") { e.preventDefault(); openFolder(); }
+    if (e.ctrlKey && e.key === "`") { e.preventDefault(); toggleTerminalPanel(); }
+    if (e.ctrlKey && e.key === "l") { e.preventDefault(); document.getElementById("agent-composer-input")?.focus(); }
     if (e.ctrlKey && e.shiftKey && e.key === "I") { cycleTheme(); }
     if (e.key === "Escape") { closePalette(); closeSettings(); }
   });
@@ -1107,7 +1240,7 @@ function renderSettingsContent() {
 }
 
 function pulseActivity(paneId) {
-  const dot = document.getElementById(`activity-${paneId}`);
+  const dot = document.getElementById(`activity-${paneId}`) || document.getElementById("agent-activity");
   if (!dot) return;
   dot.classList.add("active");
   clearTimeout(dot._pulseTimer);
