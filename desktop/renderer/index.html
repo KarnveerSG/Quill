@@ -17,6 +17,8 @@
           <button type="button" data-action="open-workspace">Open Workspace…</button>
           <button type="button" data-action="open-folder">Open Folder…</button>
           <button type="button" data-action="add-folder">Add Folder to Workspace…</button>
+          <button type="button" data-action="sync-export">Sync workspace</button>
+          <button type="button" data-action="sync-import">Import sync</button>
           <hr />
           <button type="button" data-action="settings">Settings</button>
           <button type="button" data-action="quit">Exit</button>
@@ -103,6 +105,13 @@
         </ul>
       </div>
       <div id="editor-area" class="editor-area hidden">
+        <div id="batch-review-bar" class="batch-review-bar hidden">
+          <span class="batch-count">0 files changed by agent</span>
+          <div class="inline-diff-actions">
+            <button type="button" class="scm-btn" id="batch-apply-all">Apply all</button>
+            <button type="button" class="scm-btn" id="batch-revert-all">Revert all</button>
+          </div>
+        </div>
         <div id="inline-diff-bar" class="inline-diff-bar hidden">
           <span>Agent edited <strong class="inline-diff-path"></strong></span>
           <div class="inline-diff-actions">
@@ -130,6 +139,16 @@
         </div>
         <div id="pane-grid" class="pane-grid grid-1x1"></div>
       </div>
+      <div id="browser-panel" class="browser-panel hidden">
+        <div class="browser-panel-head">
+          <span id="browser-url">Browser</span>
+          <div>
+            <button type="button" class="editor-tab-btn" id="browser-open-external" title="Open externally">↗</button>
+            <button type="button" id="browser-panel-close">×</button>
+          </div>
+        </div>
+        <webview id="cowork-browser" src="about:blank" class="cowork-browser"></webview>
+      </div>
       <footer class="statusbar">
         <select id="status-branch" class="status-branch" title="Branch"></select>
         <span id="status-git-changes"></span>
@@ -144,6 +163,10 @@
         <select class="pane-persona-select" id="agent-persona" title="Persona"></select>
         <span class="pane-activity" id="agent-activity"></span>
       </header>
+      <div id="agent-plan" class="agent-plan hidden">
+        <div class="agent-plan-head">Plan</div>
+        <ul id="agent-plan-list" class="agent-plan-list"></ul>
+      </div>
       <div id="agent-chat" class="agent-chat"></div>
       <div class="agent-composer-wrap">
         <div class="agent-composer">
@@ -151,8 +174,10 @@
           <button type="button" class="agent-send" id="agent-composer-send" title="Send">↑</button>
         </div>
         <div class="agent-composer-meta">
-          <span>Agent mode</span>
+          <select id="agent-delegate" class="agent-delegate" title="Send to pane"></select>
+          <span>Cowork mode</span>
           <button type="button" class="agent-link" data-action="toggle-terminal">Terminal</button>
+          <button type="button" class="agent-link" data-action="toggle-browser">Browser</button>
         </div>
       </div>
     </aside>
@@ -197,6 +222,7 @@
   <script src="vendor/xterm.js"></script>
   <script src="vendor/addon-fit.js"></script>
   <script src="quill-features.js"></script>
+  <script src="cowork.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

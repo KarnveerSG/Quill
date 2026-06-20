@@ -484,6 +484,19 @@ class ToolRunner:
         safe = str(detail or "").replace("\n", " ").replace(":", " ")[:160]
         print(f"[QUILL_TOOL:{name}:{safe}]", file=sys.stderr, flush=True)
 
+    def _emit_quill_tasks(self) -> None:
+        if not os.environ.get("QUILL_DESKTOP"):
+            return
+        import json
+        payload = json.dumps(self._tasks, separators=(",", ":"))
+        print(f"[QUILL_TASK:{payload}]", file=sys.stderr, flush=True)
+
+    def _emit_quill_browser(self, url: str) -> None:
+        if not os.environ.get("QUILL_DESKTOP"):
+            return
+        safe = str(url or "").replace("\n", " ").strip()[:500]
+        print(f"[QUILL_BROWSER:{safe}]", file=sys.stderr, flush=True)
+
     def _unified_diff(self, old: str, new: str, path: Path) -> str | None:
         if old == new:
             return None
@@ -753,6 +766,7 @@ class ToolRunner:
         text = text.strip()
         if len(text) > max_chars:
             text = text[:max_chars] + "\n[...truncated...]"
+        self._emit_quill_browser(url)
         header = f"[{url}] ({len(raw)} bytes, {ctype or 'unknown'})\n"
         return ToolResult(header + text)
 
@@ -764,6 +778,7 @@ class ToolRunner:
                 return ToolResult("No items to add.", is_error=True)
             for it in items:
                 self._tasks.append({"text": str(it), "status": "pending"})
+            self._emit_quill_tasks()
             return ToolResult(_render_tasks(self._tasks))
         if action == "update":
             idx = int(args.get("index", 0))
@@ -771,13 +786,16 @@ class ToolRunner:
             if not (1 <= idx <= len(self._tasks)):
                 return ToolResult(f"Invalid index {idx} (have {len(self._tasks)} tasks).", is_error=True)
             self._tasks[idx - 1]["status"] = status
+            self._emit_quill_tasks()
             return ToolResult(_render_tasks(self._tasks))
         if action == "clear":
             self._tasks = []
+            self._emit_quill_tasks()
             return ToolResult("Task list cleared.")
         # list (default)
         if not self._tasks:
             return ToolResult("(no tasks)")
+        self._emit_quill_tasks()
         return ToolResult(_render_tasks(self._tasks))
 
     def _tool_undo_last(self, _args: dict) -> ToolResult:

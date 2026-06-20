@@ -1418,3 +1418,85 @@ body.theme-forest { --bg: #0f1a14; --bg-panel: #152019; --bg-header: #1a2820; --
 .monaco-editor .glyph-add::before { content: "+"; color: #73c991; }
 .monaco-editor .glyph-del::before { content: "−"; color: #f14c4c; }
 
+/* Cowork */
+.batch-review-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: rgba(167, 139, 250, 0.12);
+  border-bottom: 1px solid var(--accent-purple);
+  font-size: 12px;
+}
+.batch-review-bar.hidden { display: none; }
+
+.agent-plan {
+  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+.agent-plan.hidden { display: none; }
+.agent-plan-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.agent-plan-list { list-style: none; }
+.plan-item {
+  display: flex;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.plan-item.plan-done { color: var(--text); opacity: 0.7; text-decoration: line-through; }
+.plan-item.plan-in_progress { color: var(--accent); }
+.plan-icon { width: 14px; flex-shrink: 0; }
+
+.agent-delegate {
+  max-width: 130px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  font-size: 11px;
+  border-radius: 4px;
+  padding: 2px 4px;
+}
+
+.browser-panel {
+  border-top: 1px solid var(--border);
+  background: var(--bg-panel);
+  min-height: 200px;
+  max-height: 40vh;
+  display: flex;
+  flex-direction: column;
+}
+.browser-panel.hidden { display: none; }
+.browser-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+}
+.browser-panel-head button {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  margin-left: 6px;
+}
+.cowork-browser {
+  flex: 1;
+  min-height: 160px;
+  border: none;
+  background: #fff;
+}
+

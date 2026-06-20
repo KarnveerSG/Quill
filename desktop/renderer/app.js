@@ -26,7 +26,8 @@ function getCommands() {
     { id: "theme", label: "Cycle theme", run: () => cycleTheme() },
     { id: "mcp-settings", label: "Open MCP settings", run: () => openSettings("mcp") },
     { id: "git-refresh", label: "Refresh git info", run: () => refreshAllGitInfo() },
-    { id: "save-file", label: "Save file", run: () => saveEditor() },
+    { id: "sync-workspace", label: "Export workspace sync", run: () => exportWorkspaceSync() },
+    { id: "import-sync", label: "Import workspace sync", run: () => importWorkspaceSync() },
     { id: "close-editor", label: "Close editor panel", run: () => closeEditor() },
   ];
   state.workspaces.forEach((ws) => {
@@ -101,7 +102,24 @@ async function init() {
     resolvePath: resolveWsPath,
     setEditorTab,
     getState: () => state,
+    getEditorPath: () => editorFilePath,
     _lspRegistered: false,
+  });
+
+  window.QuillCowork?.init({
+    activeWs,
+    resolvePath: resolveWsPath,
+    pathsEqual,
+    refreshEditor: refreshEditorContent,
+    refreshGit: refreshGitInfo,
+    showToast,
+    getEditorPath: () => editorFilePath,
+    getPrimaryPtyId: () => termInstances.get(primaryPaneId)?.ptyId,
+    getPtyId: (paneId) => termInstances.get(paneId)?.ptyId,
+    listPanes: () => activeWs()?.paneIds || [],
+    getPanePersona: (paneId) => state.panes[paneId]?.persona || "Agent",
+    getPersonas: () => bootstrap?.personas || [],
+    addPane: (persona) => addPane(persona),
   });
 
   document.addEventListener("keydown", (e) => {
@@ -266,12 +284,15 @@ function bindGlobalComposer() {
   let mentionAt = -1;
   const hideMentionMenu = () => { mentionMenu?.remove(); mentionMenu = null; mentionAt = -1; };
 
-  const submit = () => {
+  const submit = async () => {
     const text = input.value.trim();
     if (!text) return;
     hideMentionMenu();
     appendAgentChat("user", text);
-    window.quill.ptyWrite(t.ptyId, text + "\r");
+    const ptyId = window.QuillCowork
+      ? await window.QuillCowork.resolveDelegateTarget()
+      : t.ptyId;
+    window.quill.ptyWrite(ptyId || t.ptyId, text + "\r");
     input.value = "";
     input.style.height = "auto";
   };
@@ -847,6 +868,7 @@ async function renderPanes() {
   }
   populateAgentPersona();
   bindGlobalComposer();
+  window.QuillCowork?.populateDelegateSelect();
   renderWorkspaces();
 }
 
@@ -1002,17 +1024,19 @@ async function removePane(paneId) {
   await renderPanes();
 }
 
-async function addPane() {
+async function addPane(personaOverride) {
   const ws = activeWs();
   if (!ws) return;
   const paneId = `pane-${Date.now()}`;
   ws.paneIds = ws.paneIds || [];
   ws.paneIds.push(paneId);
-  state.panes[paneId] = { persona: bootstrap.personas[ws.paneIds.length % bootstrap.personas.length], mode: "agent" };
+  const persona = personaOverride || bootstrap.personas[ws.paneIds.length % bootstrap.personas.length];
+  state.panes[paneId] = { persona, mode: "agent" };
   ws.panes = ws.paneIds.length;
   ws.layout = ws.paneIds.length <= 1 ? "grid-1x1" : ws.paneIds.length <= 4 ? "grid-2x2" : "grid-3x2";
   persist();
   await renderPanes();
+  window.QuillCowork?.populateDelegateSelect();
 }
 
 async function openFolder() {
@@ -1115,16 +1139,43 @@ function bindMenubar() {
   });
 }
 
+function toggleBrowserPanel(show) {
+  const panel = document.getElementById("browser-panel");
+  if (!panel) return;
+  const open = typeof show === "boolean" ? show : panel.classList.contains("hidden");
+  panel.classList.toggle("hidden", !open);
+}
+
+async function exportWorkspaceSync() {
+  await window.quill.exportWorkspaceSync(state);
+  showToast("Workspace exported to ~/.quill/workspace-sync.json");
+}
+
+async function importWorkspaceSync() {
+  const res = await window.quill.importWorkspaceSync();
+  if (!res.ok) { showToast(res.error || "Import failed"); return; }
+  Object.assign(state, res.state);
+  persist();
+  renderWorkspaces();
+  await renderPanes();
+  await refreshGitInfo();
+  await renderFileTree();
+  showToast("Workspace imported");
+}
+
 function handleAction(action) {
   const map = {
     "open-workspace": openWorkspaceFile,
     "open-folder": openFolder,
     "add-folder": addFolderToWorkspace,
+    "sync-export": exportWorkspaceSync,
+    "sync-import": importWorkspaceSync,
     settings: () => openSettings("appearance"),
     "settings-appearance": () => openSettings("appearance"),
     "mcp-settings": () => openSettings("mcp"),
     "save-file": () => saveEditor(),
     "toggle-terminal": () => toggleTerminalPanel(),
+    "toggle-browser": () => toggleBrowserPanel(),
     quit: () => window.quill.quit(),
     palette: openPalette,
     "new-pane": addPane,

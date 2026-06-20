@@ -161,13 +161,13 @@ const QuillFeatures = (() => {
   }
 
   function parseAgentStream(raw) {
+    if (window.QuillCowork) {
+      window.QuillCowork.parseStream(raw);
+    }
     const clean = String(raw || "").replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "").replace(/\r/g, "");
     const toolRe = /\[QUILL_TOOL:([^:\]]+):([^\]\r\n]*)\]/g;
     let m;
     while ((m = toolRe.exec(clean)) !== null) appendToolCard(m[1], m[2]);
-    const editRe = /\[QUILL_EDIT:([^\]\r\n]+)\]/;
-    const em = clean.match(editRe);
-    if (em) showInlineDiffBar(deps.resolvePath(em[1]));
   }
 
   function showInlineDiffBar(filePath) {
@@ -183,6 +183,8 @@ const QuillFeatures = (() => {
   }
 
   async function acceptEdit() {
+    const p = pendingEditPath || deps.getEditorPath();
+    window.QuillCowork?.clearPending(p);
     pendingEditPath = null;
     document.getElementById("inline-diff-bar")?.classList.add("hidden");
     await deps.refreshGit();
@@ -194,6 +196,7 @@ const QuillFeatures = (() => {
     if (!p) return;
     const ws = deps.activeWs();
     const res = await window.quill.gitRevertFile({ cwd: ws?.cwd, filePath: p });
+    window.QuillCowork?.clearPending(p);
     pendingEditPath = null;
     document.getElementById("inline-diff-bar")?.classList.add("hidden");
     if (res.ok) {
@@ -486,6 +489,7 @@ const QuillFeatures = (() => {
     syncWorkspace,
     getOpenTabs: () => openTabs,
     getActiveTab: () => activeTabPath,
+    showInlineDiffBar,
   };
 })();
 

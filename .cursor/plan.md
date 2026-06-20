@@ -156,9 +156,9 @@ Cowork scopes all tools to a folder. Quill equivalent:
 - [x] SCM badges + gutter diff hints
 - [x] First-run onboarding (open folder)
 - [x] Auto-update banner (GitHub releases)
-- [ ] Task plan sidebar (parse `## Plan` from agent)
-- [ ] Apply-all / batch review for multi-file edits
-- [ ] Sandboxed browser panel
+- [x] Task plan sidebar (parse `## Plan` from agent)
+- [x] Apply-all / batch review for multi-file edits
+- [x] Sandboxed browser panel
 
 ---
 
