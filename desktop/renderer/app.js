@@ -322,46 +322,58 @@ function showFileChangedBadge() {
   }, 8000);
 }
 
-function ensureMonaco() {
-  if (monacoInitPromise) return monacoInitPromise;
-  monacoInitPromise = new Promise((resolve) => {
-    if (window.monaco?.editor) {
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) {
       resolve();
       return;
     }
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error(`Failed to load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
+function ensureMonaco() {
+  if (monacoInitPromise) return monacoInitPromise;
+  monacoInitPromise = (async () => {
+    if (window.monaco?.editor) return;
+    await loadScript("https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs/loader.js");
     window.require.config({
       paths: { vs: "https://cdn.jsdelivr.net/npm/monaco-editor@0.52.2/min/vs" },
     });
-    window.require(["vs/editor/editor.main"], () => {
-      const el = document.getElementById("monaco-editor");
-      if (el && !monacoEditor) {
-        monacoEditor = monaco.editor.create(el, {
-          theme: "vs-dark",
-          automaticLayout: true,
-          minimap: { enabled: true },
-          fontSize: 13,
-          fontFamily: "Cascadia Code, Consolas, monospace",
-          scrollBeyondLastLine: false,
-        });
-        monacoEditor.onDidChangeModelContent(() => {
-          editorDirty = true;
-          updateEditorDirty();
-        });
-      }
-      const diffEl = document.getElementById("monaco-diff");
-      if (diffEl && !monacoDiff) {
-        monacoDiff = monaco.editor.createDiffEditor(diffEl, {
-          theme: "vs-dark",
-          automaticLayout: true,
-          readOnly: true,
-          renderSideBySide: true,
-          fontSize: 13,
-          fontFamily: "Cascadia Code, Consolas, monospace",
-        });
-      }
-      resolve();
+    await new Promise((resolve, reject) => {
+      window.require(["vs/editor/editor.main"], () => resolve(), reject);
     });
-  });
+    const el = document.getElementById("monaco-editor");
+    if (el && !monacoEditor) {
+      monacoEditor = monaco.editor.create(el, {
+        theme: "vs-dark",
+        automaticLayout: true,
+        minimap: { enabled: true },
+        fontSize: 13,
+        fontFamily: "Cascadia Code, Consolas, monospace",
+        scrollBeyondLastLine: false,
+      });
+      monacoEditor.onDidChangeModelContent(() => {
+        editorDirty = true;
+        updateEditorDirty();
+      });
+    }
+    const diffEl = document.getElementById("monaco-diff");
+    if (diffEl && !monacoDiff) {
+      monacoDiff = monaco.editor.createDiffEditor(diffEl, {
+        theme: "vs-dark",
+        automaticLayout: true,
+        readOnly: true,
+        renderSideBySide: true,
+        fontSize: 13,
+        fontFamily: "Cascadia Code, Consolas, monospace",
+      });
+    }
+  })();
   return monacoInitPromise;
 }
 
