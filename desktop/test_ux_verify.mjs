@@ -274,7 +274,20 @@ async function main() {
     else if (!delegate.hasPanePrefix) pass("delegate labels", delegate.opts.join(" | "));
     else fail("delegate labels", delegate.opts.join(" | "));
 
-    pass("session", "ux verify complete");
+    // Grid fills workspace stage (no wasted vertical space)
+    const gridFill = await win.evaluate(() => {
+      const stage = document.getElementById("workspace-stage");
+      const grid = document.querySelector(".ws-pane-grid:not(.hidden)");
+      if (!stage || !grid) return { error: "no stage/grid" };
+      const stageH = stage.getBoundingClientRect().height;
+      const gridH = grid.getBoundingClientRect().height;
+      const ratio = gridH / stageH;
+      return { stageH, gridH, ratio };
+    });
+    if (gridFill.error) fail("grid fills stage", gridFill.error);
+    else if (gridFill.ratio >= 0.95) pass("grid fills stage", `${Math.round(gridFill.gridH)}px / ${Math.round(gridFill.stageH)}px`);
+    else fail("grid fills stage", JSON.stringify(gridFill));
+
   } catch (e) {
     fail("exception", String(e.message || e));
   } finally {

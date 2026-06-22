@@ -1572,6 +1572,7 @@ async function ensureWorkspaceUI(ws) {
     if (!ws.agentStopped && !termInstances.has(paneId)) await mountTerminal(paneId, ws);
   }
   updateAgentStoppedOverlay(ws);
+  fitActiveTerminals();
 }
 
 function layoutForPaneCount(n) {
@@ -2222,6 +2223,9 @@ function bindScm() {
 function bindEvents() {
   document.getElementById("add-workspace")?.addEventListener("click", addWorkspace);
   document.getElementById("settings-close")?.addEventListener("click", closeSettings);
+  const stage = document.getElementById("workspace-stage");
+  if (stage) new ResizeObserver(() => fitActiveTerminals()).observe(stage);
+  window.addEventListener("resize", () => fitActiveTerminals());
   document.addEventListener("keydown", (e) => {
     if (e.ctrlKey && e.key === "p") { e.preventDefault(); openPalette(); }
     if (e.ctrlKey && e.key === "o") { e.preventDefault(); openFolder(); }
