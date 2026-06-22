@@ -113,7 +113,7 @@ def test_dist_artifacts() -> None:
     paths = {
         "cli exe": ROOT / "dist" / "Quill.exe",
         "desktop unpacked": desktop_exe,
-        "desktop portable": ROOT / "dist" / "desktop" / "Quill-0.2.0-portable.exe",
+        "desktop portable": ROOT / "dist" / "desktop" / "Quill-0.3.0-portable.exe",
     }
     local = Path(os.environ.get("LOCALAPPDATA", ""))
     paths["installed cli"] = local / "Programs" / "Quill" / "Quill.exe"
@@ -257,9 +257,9 @@ def test_scrollbar_css() -> None:
 
 
 def test_agent_chat_filtering() -> None:
-    app = (DESKTOP / "renderer" / "app.js").read_text(encoding="utf-8")
+    agent_panel = (DESKTOP / "renderer" / "modules" / "agentPanel.js").read_text(encoding="utf-8")
     ui = (ROOT / "quill" / "ui.py").read_text(encoding="utf-8")
-    if "isTerminalNoise" not in app or "QUILL_REPLY" not in ui:
+    if "isTerminalNoise" not in agent_panel or "QUILL_REPLY" not in ui:
         fail("agent chat filter", "missing noise filter or QUILL_REPLY emitter")
     else:
         ok("agent chat filter", "PTY off by default + structured replies")

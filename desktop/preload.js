@@ -43,4 +43,8 @@ contextBridge.exposeInMainWorld("quill", {
   saveKeybindings: (bindings) => ipcRenderer.invoke("save-keybindings", bindings),
   exportWorkspaceSync: (state) => ipcRenderer.invoke("export-workspace-sync", state),
   importWorkspaceSync: () => ipcRenderer.invoke("import-workspace-sync"),
+  getProvider: () => ipcRenderer.invoke("get-provider"),
+  setProvider: (provider) => ipcRenderer.invoke("set-provider", provider),
+  getTasks: (cwd) => ipcRenderer.invoke("get-tasks", cwd),
+  saveTasks: (opts) => ipcRenderer.invoke("save-tasks", opts),
 });

@@ -15,7 +15,7 @@ def _desktop_candidates() -> list[Path]:
     return [
         local / "Programs" / "Quill Desktop" / "Quill.exe",
         root / "dist" / "desktop" / "win-unpacked" / "Quill.exe",
-        root / "dist" / "desktop" / "Quill-0.2.0-portable.exe",
+        root / "dist" / "desktop" / "Quill-0.3.0-portable.exe",
         desktop / "Quill.exe",
     ]
 

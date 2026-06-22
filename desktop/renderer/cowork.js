@@ -133,6 +133,25 @@ const QuillCowork = (() => {
       ?? String(raw || "").replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, "").replace(/\r/g, "");
     const taskM = clean.match(/\[QUILL_TASK:([^\]]+)\]/);
     if (taskM) ingestTasks(taskM[1]);
+    let taskMarkerHit = false;
+    const taskStartRe = /\[QUILL:TASK_START\s+([^\s\]]+)\s+([^\]]+)\]/g;
+    let ts;
+    while ((ts = taskStartRe.exec(clean)) !== null) {
+      taskMarkerHit = true;
+      const id = ts[1];
+      const title = ts[2].trim();
+      const hit = taskItems.find((t) => t.id === id);
+      if (hit) { hit.text = title; }
+      else taskItems.push({ id, text: title, status: "pending" });
+    }
+    const taskDoneRe = /\[QUILL:TASK_DONE\s+([^\s\]]+)\]/g;
+    let td;
+    while ((td = taskDoneRe.exec(clean)) !== null) {
+      taskMarkerHit = true;
+      const hit = taskItems.find((t) => t.id === td[1]);
+      if (hit) hit.status = "done";
+    }
+    if (taskMarkerHit) renderTaskPlan();
     const browserM = clean.match(/\[QUILL_BROWSER:([^\]\r\n]+)\]/);
     if (browserM) openBrowser(browserM[1].trim());
     const editRe = /\[QUILL_EDIT:([^\]\r\n]+)\]/g;
@@ -177,10 +196,16 @@ const QuillCowork = (() => {
       populateDelegateSelect();
       const panes = deps.listPanes?.() || [];
       const last = panes[panes.length - 1];
-      return deps.getPtyId?.(last) || deps.getPrimaryPtyId?.();
+      return { ptyId: deps.getPtyId?.(last) || deps.getPrimaryPtyId?.(), paneId: last };
     }
-    if (val === "primary") return deps.getPrimaryPtyId?.();
-    return deps.getPtyId?.(val) || deps.getPrimaryPtyId?.();
+    if (val === "primary") {
+      const pid = deps.getPrimaryPaneId?.() || deps.listPanes?.()?.[0];
+      return { ptyId: deps.getPrimaryPtyId?.(), paneId: pid };
+    }
+    return {
+      ptyId: deps.getPtyId?.(val) || deps.getPrimaryPtyId?.(),
+      paneId: val,
+    };
   }
 
   function bindDelegation() {

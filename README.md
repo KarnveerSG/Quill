@@ -33,6 +33,7 @@ Legacy `~/.sexyjarvis/.env` is auto-migrated on install.
 CURSOR_API_KEY=crsr_...
 ANTHROPIC_API_KEY=sk-ant-...
 QUILL_CURSOR_MODEL=auto
+QUILL_PROVIDER=auto
 LM_STUDIO_URL=http://localhost:1234/v1
 ```
 
@@ -40,17 +41,44 @@ LM_STUDIO_URL=http://localhost:1234/v1
 
 `auto` (default): **Cursor** → **Claude API** → **local LLM**
 
-## Desktop IDE
+Status bar provider dropdown switches `QUILL_PROVIDER` and persists to `~/.quill/.env`. On launch, Quill pings LM Studio (`:1234`) and Ollama (`:11434`) and shows **Local LLM: ready (model)** when available.
 
-- **Workspaces** — multiple isolated projects; red dot = agent running, green = idle
-- **Explorer** — file tree with larger icons; `+` adds workspace; right-click to close/rename/open folder
-- **Source control** — git status scoped to workspace folder (monorepo-safe); staged/changes sections
-- **Terminal grid** — up to 9 panes (3×3); 1 full, 2 split, 3–4 in 2×2; right-click pane or terminal to split/duplicate/close
-- **Agent panel** (right) — independent workspace selector; chat/composer target without switching center view
+## Desktop IDE (v0.3)
+
+### Workspaces & agents
+- **Multi-workspace** — switch workspace without killing background agents; PTYs stay alive in main process
+- **Running agents tray** (◎) — count badge + click-to-jump between active workspaces
+- **Workspace dots** — green = agent running, red = idle/stopped
+- **Task board** (☑ panel) — `.quill/tasks.json` per workspace; agents emit `[QUILL:TASK_START]` / `[QUILL:TASK_DONE]`
+
+### Terminal grid
+- Up to **9 panes** (3×3); 1 full, 2 split, 3–4 in 2×2
+- **Per-pane status pill** — idle / thinking / editing / waiting / error from `[QUILL_TOOL:…]` markers
+- **Handoff** — `/handoff <persona>` or agent composer **Send to pane** delegate
 - Unique Greek goddess persona per pane (Hera, Artemis, Athena, Demeter, Aphrodite, Hestia, Persephone, Hecate, Nike)
-- Workspace dots: green = agent running, red = idle/stopped
-- Dark mode + **i mode** light theme; settings gear opens full settings overlay
-- Agent panes run `quill` REPL; shell panes run PowerShell
+
+### Agent panel
+- Independent workspace selector; chat/composer without switching center view
+- `@` file mentions in composer; structured stream to chat
+
+### Command palette (`Ctrl+P`)
+- `>` commands — settings, new pane, toggle provider, focus pane N, run last task
+- `@` symbols & files
+- `#` workspaces
+- `:` go-to-line (e.g. `:42`)
+- plain text — fuzzy file search
+
+### Editor & SCM
+- Monaco editor + inline diff hooks (`[QUILL_EDIT:path]`)
+- Git status scoped to workspace folder (monorepo-safe)
+
+### Settings
+- Dark + **i mode** light theme
+- MCP server config per workspace
+- Keybinding overrides → `~/.quill/keybindings.json`
+
+### Stability
+- PTY shutdown race fixed; graceful quit kills all terminals and closes GPU/network connections
 
 ## Defaults (CLI)
 

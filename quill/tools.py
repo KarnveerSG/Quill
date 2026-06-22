@@ -491,6 +491,17 @@ class ToolRunner:
         payload = json.dumps(self._tasks, separators=(",", ":"))
         print(f"[QUILL_TASK:{payload}]", file=sys.stderr, flush=True)
 
+    def _emit_task_start(self, task_id: str, title: str) -> None:
+        if not os.environ.get("QUILL_DESKTOP"):
+            return
+        safe_title = str(title or "").replace("\n", " ").replace("]", "")[:200]
+        print(f"[QUILL:TASK_START {task_id} {safe_title}]", file=sys.stderr, flush=True)
+
+    def _emit_task_done(self, task_id: str) -> None:
+        if not os.environ.get("QUILL_DESKTOP"):
+            return
+        print(f"[QUILL:TASK_DONE {task_id}]", file=sys.stderr, flush=True)
+
     def _emit_quill_browser(self, url: str) -> None:
         if not os.environ.get("QUILL_DESKTOP"):
             return
@@ -778,6 +789,8 @@ class ToolRunner:
                 return ToolResult("No items to add.", is_error=True)
             for it in items:
                 self._tasks.append({"text": str(it), "status": "pending"})
+                tid = str(len(self._tasks))
+                self._emit_task_start(tid, str(it))
             self._emit_quill_tasks()
             return ToolResult(_render_tasks(self._tasks))
         if action == "update":
@@ -786,6 +799,8 @@ class ToolRunner:
             if not (1 <= idx <= len(self._tasks)):
                 return ToolResult(f"Invalid index {idx} (have {len(self._tasks)} tasks).", is_error=True)
             self._tasks[idx - 1]["status"] = status
+            if status == "done":
+                self._emit_task_done(str(idx))
             self._emit_quill_tasks()
             return ToolResult(_render_tasks(self._tasks))
         if action == "clear":

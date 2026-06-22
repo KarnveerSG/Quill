@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, shell, dialog, Menu } = require("electron")
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
+const http = require("http");
 const { spawn, execFile } = require("child_process");
 const { promisify } = require("util");
 const execFileAsync = promisify(execFile);
@@ -118,6 +119,12 @@ function gracefulKillTerm(id, t) {
 }
 
 async function shutdownAllTerminals() {
+  for (const [, t] of terminals) {
+    try {
+      t.pty?.kill();
+    } catch (_) {}
+    if (t?.proc && !t.proc.killed) forceKillProc(t.proc);
+  }
   await Promise.all([...terminals.entries()].map(([id, t]) => gracefulKillTerm(id, t)));
   terminals.clear();
 }
@@ -139,6 +146,14 @@ async function quitApp() {
   }
   await shutdownAllTerminals();
   if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      const wc = mainWindow.webContents;
+      if (wc && !wc.isDestroyed()) {
+        wc.session?.closeAllConnections?.();
+        wc.removeAllListeners();
+      }
+      mainWindow.removeAllListeners();
+    } catch (_) {}
     mainWindow.destroy();
     mainWindow = null;
   }
@@ -192,6 +207,54 @@ function writeEnvFile(filePath, data) {
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, lines.join("\n") + "\n", "utf8");
+}
+
+function fetchLocalModel(base, timeout = 1200) {
+  return new Promise((resolve) => {
+    try {
+      const url = new URL(`${String(base).replace(/\/$/, "")}/models`);
+      const req = http.get(url, { timeout }, (res) => {
+        let buf = "";
+        res.on("data", (d) => { buf += d; });
+        res.on("end", () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) return resolve(null);
+          try {
+            const j = JSON.parse(buf);
+            const models = j.data || j.models || [];
+            const first = models[0];
+            const name = first?.id || first?.name || (typeof first === "string" ? first : null);
+            resolve(name || "ready");
+          } catch (_) {
+            resolve("ready");
+          }
+        });
+      });
+      req.on("error", () => resolve(null));
+      req.on("timeout", () => {
+        req.destroy();
+        resolve(null);
+      });
+    } catch (_) {
+      resolve(null);
+    }
+  });
+}
+
+async function detectLocalLLM() {
+  for (const base of ["http://localhost:1234/v1", "http://localhost:11434/v1"]) {
+    const model = await fetchLocalModel(base);
+    if (model) return { url: base, model };
+  }
+  return null;
+}
+
+function getActiveProvider() {
+  const env = parseEnvFile(envPath());
+  return String(env.QUILL_PROVIDER || env.SEXYJARVIS_PROVIDER || "auto").toLowerCase();
+}
+
+function tasksFilePath(cwd) {
+  return path.join(path.resolve(cwd || os.homedir()), ".quill", "tasks.json");
 }
 
 function integrationStatus(env, integration) {
@@ -368,14 +431,20 @@ function spawnTerm(id, opts) {
   const cols = opts.cols || 120;
   const rows = opts.rows || 30;
 
+  const canSendToRenderer = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return false;
+    const wc = mainWindow.webContents;
+    return wc && !wc.isDestroyed();
+  };
+
   const emit = (data) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    if (canSendToRenderer()) {
       mainWindow.webContents.send("pty-data", { id, data: data.toString() });
     }
   };
   const onExit = (code) => {
     terminals.delete(id);
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    if (canSendToRenderer()) {
       mainWindow.webContents.send("pty-exit", { id, exitCode: code ?? 0 });
     }
   };
@@ -416,7 +485,7 @@ function spawnTerm(id, opts) {
   return { id, persona, mode: "agent", pty: false };
 }
 
-ipcMain.handle("get-bootstrap", () => {
+ipcMain.handle("get-bootstrap", async () => {
   const env = parseEnvFile(envPath());
   const integrations = INTEGRATIONS.map((i) => ({
     ...i,
@@ -424,6 +493,14 @@ ipcMain.handle("get-bootstrap", () => {
     keys: i.keys.map((k) => ({ ...k, set: Boolean((env[k.env] || "").trim()) })),
   }));
   const connected = integrations.filter((i) => i.status === "connected").length;
+  const localLlm = await detectLocalLLM();
+  if (localLlm?.url?.includes("1234")) {
+    const envNow = parseEnvFile(envPath());
+    if (!(envNow.LM_STUDIO_URL || "").trim()) {
+      envNow.LM_STUDIO_URL = localLlm.url;
+      writeEnvFile(envPath(), envNow);
+    }
+  }
   return {
     state: loadState(),
     personas: PERSONAS,
@@ -437,6 +514,11 @@ ipcMain.handle("get-bootstrap", () => {
     integrations,
     integrationsSummary: `${connected} of ${INTEGRATIONS.length} connected`,
     coreEnvKeys: CORE_ENV_KEYS.map((k) => ({ ...k, set: Boolean((env[k.env] || "").trim()) })),
+    providers: ["auto", "anthropic", "cursor", "local"],
+    activeProvider: getActiveProvider(),
+    localLlmAvailable: Boolean(localLlm),
+    localLlmUrl: localLlm?.url || "",
+    localLlmModel: localLlm?.model || "",
   };
 });
 
@@ -489,6 +571,34 @@ ipcMain.handle("save-env-keys", (_e, updates) => {
   }));
   const connected = integrations.filter((i) => i.status === "connected").length;
   return { ok: true, integrationsSummary: `${connected} of ${INTEGRATIONS.length} connected`, integrations };
+});
+ipcMain.handle("get-provider", () => ({ provider: getActiveProvider() }));
+ipcMain.handle("set-provider", async (_e, provider) => {
+  const p = String(provider || "auto").toLowerCase();
+  if (p === "local" && !(await detectLocalLLM())) {
+    return { ok: false, error: "No local LLM detected (LM Studio / Ollama)" };
+  }
+  const file = envPath();
+  const env = parseEnvFile(file);
+  env.QUILL_PROVIDER = p;
+  writeEnvFile(file, env);
+  return { ok: true, activeProvider: p };
+});
+ipcMain.handle("get-tasks", (_e, cwd) => {
+  const fp = tasksFilePath(cwd);
+  try {
+    if (!fs.existsSync(fp)) return { tasks: [] };
+    const raw = JSON.parse(fs.readFileSync(fp, "utf8"));
+    return { tasks: Array.isArray(raw) ? raw : [] };
+  } catch (_) {
+    return { tasks: [] };
+  }
+});
+ipcMain.handle("save-tasks", (_e, { cwd, tasks }) => {
+  const fp = tasksFilePath(cwd);
+  fs.mkdirSync(path.dirname(fp), { recursive: true });
+  fs.writeFileSync(fp, JSON.stringify(tasks || [], null, 2));
+  return { ok: true };
 });
 ipcMain.handle("pty-create", (_e, opts) => spawnTerm(`term-${++termCounter}`, opts));
 ipcMain.handle("pty-write", (_e, { id, data }) => {

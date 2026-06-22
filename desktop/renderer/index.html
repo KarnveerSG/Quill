@@ -55,6 +55,8 @@
       <button type="button" class="activity-btn" data-panel="scm" title="Source Control"><span class="activity-icon" aria-hidden="true">⑂</span><span class="activity-badge hidden" id="scm-badge">0</span></button>
       <button type="button" class="activity-btn" data-panel="search" title="Search"><span class="activity-icon" aria-hidden="true">⌕</span></button>
       <button type="button" class="activity-btn" data-panel="agent" title="Agent"><span class="activity-icon" aria-hidden="true">✦</span></button>
+      <button type="button" class="activity-btn" id="agents-tray-btn" title="Running agents"><span class="activity-icon" aria-hidden="true">◎</span><span class="activity-badge hidden" id="agents-tray-badge">0</span></button>
+      <button type="button" class="activity-btn" data-panel="tasks" title="Task board"><span class="activity-icon" aria-hidden="true">☑</span></button>
       <button type="button" class="activity-btn activity-spacer" disabled aria-hidden="true"></button>
       <button type="button" class="activity-btn" data-panel="settings" title="Settings"><span class="activity-icon" aria-hidden="true">⚙</span></button>
     </nav>
@@ -89,6 +91,10 @@
         <div class="panel-header"><span>SEARCH</span></div>
         <input type="text" id="side-search" class="side-search-input" placeholder="Search files… (Ctrl+Shift+F for content)" autocomplete="off" />
         <ul id="search-results" class="search-results"></ul>
+      </div>
+      <div class="panel-view" data-view="tasks">
+        <div class="panel-header"><span>TASKS</span></div>
+        <ul id="task-board-list" class="task-board-list"></ul>
       </div>
       <div class="panel-view" data-view="settings">
         <div class="panel-header"><span>SETTINGS</span></div>
@@ -153,6 +159,8 @@
         <select id="status-branch" class="status-branch" title="Branch"></select>
         <span id="status-git-changes"></span>
         <span id="status-file"></span>
+        <select id="status-provider" class="status-provider" title="LLM provider"></select>
+        <span id="status-local-llm" class="status-local-llm" title="Local LLM"></span>
         <span class="status-right" id="status-path"></span>
       </footer>
     </main>
@@ -202,7 +210,7 @@
   </div>
 
   <div id="palette" class="palette hidden">
-    <input id="palette-input" type="text" placeholder="Files, commands, symbols…" autocomplete="off" />
+    <input id="palette-input" type="text" placeholder="> commands  @ files  # workspaces  :line" autocomplete="off" />
     <ul id="palette-list"></ul>
   </div>
 
@@ -228,6 +236,16 @@
   <script src="vendor/addon-fit.js"></script>
   <script src="quill-features.js"></script>
   <script src="cowork.js"></script>
+  <script src="multi-agent.js"></script>
+  <script src="modules/state.js"></script>
+  <script src="modules/util.js"></script>
+  <script src="modules/scm.js"></script>
+  <script src="modules/editor.js"></script>
+  <script src="modules/terminals.js"></script>
+  <script src="modules/workspaces.js"></script>
+  <script src="modules/agentPanel.js"></script>
+  <script src="modules/settings.js"></script>
+  <script src="modules/palette.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
