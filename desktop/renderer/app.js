@@ -728,6 +728,7 @@ async function sanitizeWorkspacePanes(ws) {
     changed = true;
   }
 
+  const validPersonas = new Set(bootstrap?.personas || []);
   const used = new Set();
   for (const paneId of ws.paneIds) {
     if (!state.panes[paneId]) {
@@ -737,7 +738,7 @@ async function sanitizeWorkspacePanes(ws) {
       continue;
     }
     let persona = state.panes[paneId].persona;
-    if (used.has(persona)) {
+    if (!validPersonas.has(persona) || used.has(persona)) {
       persona = pickUnusedPersonaFromUsed(used);
       state.panes[paneId].persona = persona;
       changed = true;

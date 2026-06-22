@@ -1520,7 +1520,8 @@ body.theme-forest { --bg: #0f1a14; --bg-panel: #152019; --bg-header: #1a2820; --
 }
 
 .settings-nav-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
   align-items: center;
   gap: 10px;
   width: 100%;
@@ -1533,9 +1534,12 @@ body.theme-forest { --bg: #0f1a14; --bg-panel: #152019; --bg-header: #1a2820; --
   font-size: 0.85rem;
   text-align: left;
 }
-.settings-nav-item .nav-label { flex: 1; }
+.settings-nav-item .nav-label { min-width: 0; }
 .settings-nav-item .soon {
-  margin-left: auto;
+  grid-column: 3;
+  flex-shrink: 0;
+  min-width: 2.25rem;
+  text-align: right;
   font-style: normal;
   font-size: 0.7rem;
   color: var(--accent);
@@ -1546,7 +1550,8 @@ body.theme-forest { --bg: #0f1a14; --bg-panel: #152019; --bg-header: #1a2820; --
   background: rgba(126,184,255,0.15);
   color: var(--accent);
 }
-.nav-icon { opacity: 0.7; width: 16px; text-align: center; }
+.nav-icon { opacity: 0.7; width: 16px; text-align: center; grid-column: 1; }
+.settings-nav-item .nav-label { grid-column: 2; min-width: 0; }
 
 .settings-content {
   flex: 1;
