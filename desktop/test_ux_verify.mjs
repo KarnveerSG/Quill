@@ -285,8 +285,95 @@ async function main() {
       return { stageH, gridH, ratio };
     });
     if (gridFill.error) fail("grid fills stage", gridFill.error);
-    else if (gridFill.ratio >= 0.95) pass("grid fills stage", `${Math.round(gridFill.gridH)}px / ${Math.round(gridFill.stageH)}px`);
+    else     if (gridFill.ratio >= 0.95) pass("grid fills stage", `${Math.round(gridFill.gridH)}px / ${Math.round(gridFill.stageH)}px`);
     else fail("grid fills stage", JSON.stringify(gridFill));
+
+    // 13. Close middle pane — survivors keep xterm canvas
+    const closeMiddle = await win.evaluate(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const grid = document.querySelector(".ws-pane-grid:not(.hidden)");
+      if (!grid) return { error: "no grid" };
+
+      const closePane = (paneId) => {
+        grid.querySelector(`.pane[data-pane-id="${paneId}"] .pane-close`)?.click();
+      };
+      const activeWs = () =>
+        window.quill.getBootstrap().then((b) =>
+          b.state.workspaces.find((w) => w.id === b.state.activeWorkspace),
+        );
+
+      let ws = await activeWs();
+      while ((ws?.paneIds?.length || 0) > 4) {
+        closePane(ws.paneIds[ws.paneIds.length - 1]);
+        await sleep(600);
+        ws = await activeWs();
+      }
+      const addBtn = document.getElementById("ws-add-terminal");
+      while ((ws?.paneIds?.length || 0) < 4 && addBtn) {
+        addBtn.click();
+        await sleep(700);
+        ws = await activeWs();
+      }
+      if ((ws?.paneIds?.length || 0) !== 4) {
+        return { error: `expected 4 panes, got ${ws?.paneIds?.length}` };
+      }
+
+      closePane(ws.paneIds[1]);
+      await sleep(900);
+
+      const panes = [...grid.querySelectorAll(".pane")];
+      const screens = panes.map((p) => {
+        const canvas = p.querySelector(".xterm-screen canvas");
+        return { hasCanvas: !!canvas, w: canvas?.width || 0, h: canvas?.height || 0 };
+      });
+      return { paneCount: panes.length, screens };
+    });
+    if (closeMiddle.error) fail("close middle pane", closeMiddle.error);
+    else if (
+      closeMiddle.paneCount === 3
+      && closeMiddle.screens.length === 3
+      && closeMiddle.screens.every((s) => s.hasCanvas && s.w > 0 && s.h > 0)
+    ) {
+      pass("close middle pane", `3 survivors, canvases ${closeMiddle.screens.map((s) => `${s.w}x${s.h}`).join(", ")}`);
+    } else fail("close middle pane", JSON.stringify(closeMiddle));
+
+    // 14. Add pane from single — both readable width
+    const addFromOne = await win.evaluate(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const grid = document.querySelector(".ws-pane-grid:not(.hidden)");
+      if (!grid) return { error: "no grid" };
+
+      const closePane = (paneId) => {
+        grid.querySelector(`.pane[data-pane-id="${paneId}"] .pane-close`)?.click();
+      };
+      const activeWs = () =>
+        window.quill.getBootstrap().then((b) =>
+          b.state.workspaces.find((w) => w.id === b.state.activeWorkspace),
+        );
+
+      let ws = await activeWs();
+      while ((ws?.paneIds?.length || 0) > 1) {
+        closePane(ws.paneIds[ws.paneIds.length - 1]);
+        await sleep(600);
+        ws = await activeWs();
+      }
+      const before = grid.querySelectorAll(".pane").length;
+      document.getElementById("ws-add-terminal")?.click();
+      await sleep(900);
+
+      const panes = [...grid.querySelectorAll(".pane")];
+      const widths = panes.map((p) => p.querySelector(".xterm-screen canvas")?.width || 0);
+      return { before, after: panes.length, widths };
+    });
+    if (addFromOne.error) fail("add pane from single", addFromOne.error);
+    else if (
+      addFromOne.before === 1
+      && addFromOne.after === 2
+      && addFromOne.widths.length === 2
+      && addFromOne.widths.every((w) => w > 100)
+    ) {
+      pass("add pane from single", `widths ${addFromOne.widths.join(", ")}px`);
+    } else fail("add pane from single", JSON.stringify(addFromOne));
 
   } catch (e) {
     fail("exception", String(e.message || e));

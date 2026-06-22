@@ -24,6 +24,7 @@ window.QuillModules = window.QuillModules || {};
   let agentPanelMode = "open";
   let agentPtyToChat = false;
   let fitTerminalsRaf = null;
+  let _removingPane = null;
   let fileChangeRefreshTimer = null;
   let renderFileTreeTimer = null;
   let renderFileTreeWaiters = [];
@@ -98,6 +99,8 @@ window.QuillModules = window.QuillModules || {};
     set agentPtyToChat(v) { agentPtyToChat = v; },
     get fitTerminalsRaf() { return fitTerminalsRaf; },
     set fitTerminalsRaf(v) { fitTerminalsRaf = v; },
+    get _removingPane() { return _removingPane; },
+    set _removingPane(v) { _removingPane = v; },
     get fileChangeRefreshTimer() { return fileChangeRefreshTimer; },
     set fileChangeRefreshTimer(v) { fileChangeRefreshTimer = v; },
     get renderFileTreeTimer() { return renderFileTreeTimer; },

@@ -432,21 +432,24 @@ function spawnTerm(id, opts) {
   const rows = opts.rows || 30;
 
   const canSendToRenderer = () => {
+    if (shuttingDown) return false;
     if (!mainWindow || mainWindow.isDestroyed()) return false;
     const wc = mainWindow.webContents;
-    return wc && !wc.isDestroyed();
+    return wc && !wc.isDestroyed() && !wc.isCrashed();
   };
 
   const emit = (data) => {
-    if (canSendToRenderer()) {
+    if (!canSendToRenderer()) return;
+    try {
       mainWindow.webContents.send("pty-data", { id, data: data.toString() });
-    }
+    } catch { /* render frame disposed mid-quit */ }
   };
   const onExit = (code) => {
     terminals.delete(id);
-    if (canSendToRenderer()) {
+    if (!canSendToRenderer()) return;
+    try {
       mainWindow.webContents.send("pty-exit", { id, exitCode: code ?? 0 });
-    }
+    } catch { /* render frame disposed mid-quit */ }
   };
 
   if (nodePty) {

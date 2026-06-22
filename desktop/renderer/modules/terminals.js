@@ -71,7 +71,7 @@ window.QuillModules = window.QuillModules || {};
     });
     updateCenterView();
     window.QuillModules.workspaces.updateWorkspaceHead();
-    setTimeout(() => fitActiveTerminals(), 150);
+    requestAnimationFrame(() => requestAnimationFrame(() => fitActiveTerminals()));
   }
 
   function toggleTerminalPanel() {
@@ -214,21 +214,40 @@ window.QuillModules = window.QuillModules || {};
   }
 
   function syncGridPanes(grid, ws) {
-    const split = ws.paneIds.length === 2;
-    const paneMap = new Map();
-    grid.querySelectorAll(".pane").forEach((p) => {
-      paneMap.set(p.dataset.paneId, p);
-      p.remove();
-    });
+    const existing = new Map();
+    grid.querySelectorAll(".pane").forEach((p) => existing.set(p.dataset.paneId, p));
     grid.querySelectorAll(".pane-split-gutter").forEach((g) => g.remove());
 
+    for (const [paneId, paneEl] of existing) {
+      if (!ws.paneIds.includes(paneId)) {
+        const t = S().termInstances.get(paneId);
+        if (t) {
+          try { t.term.dispose(); } catch {}
+          S().termInstances.delete(paneId);
+        }
+        paneEl.remove();
+        existing.delete(paneId);
+      }
+    }
+
+    const split = ws.paneIds.length === 2;
+    const desired = [];
     for (let i = 0; i < ws.paneIds.length; i++) {
       const paneId = ws.paneIds[i];
-      let paneEl = paneMap.get(paneId);
+      let paneEl = existing.get(paneId);
       if (!paneEl) paneEl = createPaneElement(paneId, ws);
       else updatePaneHeader(paneEl, paneId);
-      grid.appendChild(paneEl);
-      if (split && i === 0) grid.appendChild(createSplitGutter(grid, ws));
+      desired.push(paneEl);
+      if (split && i === 0) desired.push(createSplitGutter(grid, ws));
+    }
+
+    for (let i = 0; i < desired.length; i++) {
+      const el = desired[i];
+      const at = grid.children[i];
+      if (el !== at) grid.insertBefore(el, at || null);
+    }
+    while (grid.children.length > desired.length) {
+      grid.lastElementChild.remove();
     }
   }
 
@@ -298,7 +317,7 @@ window.QuillModules = window.QuillModules || {};
       if (!ws.agentStopped && !S().termInstances.has(paneId)) await mountTerminal(paneId, ws);
     }
     updateAgentStoppedOverlay(ws);
-    fitActiveTerminals();
+    requestAnimationFrame(() => requestAnimationFrame(() => fitActiveTerminals()));
   }
 
   async function renderPanes() {
@@ -368,8 +387,6 @@ window.QuillModules = window.QuillModules || {};
       window.quill.ptyResize(id, term.cols, term.rows);
     });
     ro.observe(host);
-
-    setTimeout(() => { if (fit) fit.fit(); }, 200);
   }
 
   function bindComposer(paneId, ptyId) {
@@ -450,20 +467,31 @@ window.QuillModules = window.QuillModules || {};
   async function removePane(paneId) {
     const ws = window.QuillModules.workspaces.activeWs();
     if (!ws || ws.paneIds.length <= 1) return;
-    const t = S().termInstances.get(paneId);
-    if (t) {
-      await window.quill.ptyKill(t.ptyId);
-      t.term.dispose();
-      S().termInstances.delete(paneId);
+    if (S()._removingPane === paneId) return;
+    S()._removingPane = paneId;
+    try {
+      const t = S().termInstances.get(paneId);
+      if (t) {
+        await window.quill.ptyKill(t.ptyId);
+        try { t.term.dispose(); } catch {}
+        S().termInstances.delete(paneId);
+      }
+      ws.paneIds = ws.paneIds.filter((p) => p !== paneId);
+      delete S().state.panes[paneId];
+      ws.panes = ws.paneIds.length;
+      ws.layout = layoutForPaneCount(ws.paneIds.length);
+      if (S().primaryPaneId === paneId) S().primaryPaneId = ws.paneIds[0];
+      window.QuillModules.workspaces.persist();
+
+      const grid = getWsGrid(ws);
+      applyGridLayout(grid, ws);
+      syncGridPanes(grid, ws);
+      fitActiveTerminals();
+      focusPane(S().primaryPaneId);
+      window.QuillMultiAgent?.onPaneRemoved?.();
+    } finally {
+      S()._removingPane = null;
     }
-    ws.paneIds = ws.paneIds.filter((p) => p !== paneId);
-    delete S().state.panes[paneId];
-    ws.panes = ws.paneIds.length;
-    ws.layout = layoutForPaneCount(ws.paneIds.length);
-    if (S().primaryPaneId === paneId) S().primaryPaneId = ws.paneIds[0];
-    window.QuillModules.workspaces.persist();
-    await renderPanes();
-    window.QuillMultiAgent?.onPaneRemoved?.();
   }
 
   async function addPane(personaOverride) {
@@ -482,7 +510,12 @@ window.QuillModules = window.QuillModules || {};
     ws.panes = ws.paneIds.length;
     ws.layout = layoutForPaneCount(ws.paneIds.length);
     window.QuillModules.workspaces.persist();
-    await renderPanes();
+
+    const grid = getWsGrid(ws);
+    applyGridLayout(grid, ws);
+    syncGridPanes(grid, ws);
+    if (!ws.agentStopped) await mountTerminal(paneId, ws);
+    requestAnimationFrame(() => requestAnimationFrame(() => fitActiveTerminals()));
     focusPane(paneId);
     window.QuillCowork?.populateDelegateSelect();
   }
@@ -552,7 +585,12 @@ window.QuillModules = window.QuillModules || {};
     ws.panes = ws.paneIds.length;
     ws.layout = layoutForPaneCount(ws.paneIds.length);
     window.QuillModules.workspaces.persist();
-    await renderPanes();
+
+    const grid = getWsGrid(ws);
+    applyGridLayout(grid, ws);
+    syncGridPanes(grid, ws);
+    if (!ws.agentStopped) await mountTerminal(newPaneId, ws);
+    requestAnimationFrame(() => requestAnimationFrame(() => fitActiveTerminals()));
     focusPane(newPaneId);
   }
 
