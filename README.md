@@ -42,10 +42,13 @@ LM_STUDIO_URL=http://localhost:1234/v1
 
 ## Desktop IDE
 
-- Rainbow color-coded workspaces
-- Split terminal grid (2×2 / 3×2)
+- **Workspaces** — multiple isolated projects; red dot = agent running, green = idle
+- **Explorer** — file tree with larger icons; `+` adds workspace; right-click to close/rename/open folder
+- **Source control** — git status scoped to workspace folder (monorepo-safe); staged/changes sections
+- **Terminal grid** — 1 pane full, 2 split, 3–4 in 2×2, 5–6 in 3×2; right-click pane header to split/duplicate/close
+- **Agent panel** (right) — independent workspace selector; chat/composer target without switching center view
 - Named AI personas per pane (Iris, Thea, Nova, Sage, Luna, Wren)
-- Dark mode + **i mode** light theme
+- Dark mode + **i mode** light theme; settings gear opens full settings overlay
 - Agent panes run `quill` REPL; shell panes run PowerShell
 
 ## Defaults (CLI)

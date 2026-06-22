@@ -172,8 +172,11 @@ async function init() {
     state.agentPanelMode = state.agentPanelOpen === false ? "closed" : "open";
   }
   if (!state.workspaces?.length) resetDefaultState();
+  if (!state.agentPanelWorkspaceId) state.agentPanelWorkspaceId = state.activeWorkspace;
   applyTheme();
   renderWorkspaces();
+  renderAgentPanelWorkspaceSelect();
+  bindAgentPanelWorkspaceSelect();
   await renderPanes();
   document.getElementById("status-path").textContent = bootstrap.quillPath || "Quill";
   await refreshAllGitInfo();
@@ -190,7 +193,7 @@ async function init() {
   populateAgentPersona();
   updateTitlebar();
   updateWorkspaceHead();
-  restoreAgentChat(state.activeWorkspace);
+  restoreAgentChat(state.agentPanelWorkspaceId || state.activeWorkspace);
   bindAgentStreamToggle();
   document.getElementById("ws-add-terminal")?.addEventListener("click", () => addPane());
   document.getElementById("ws-toggle-agent")?.addEventListener("click", () => toggleWorkspaceAgent());
@@ -234,19 +237,24 @@ async function init() {
   });
 
   window.QuillCowork?.init({
-    activeWs,
+    activeWs: agentPanelWs,
     resolvePath: resolveWsPath,
     pathsEqual,
     refreshEditor: refreshEditorContent,
     refreshGit: refreshGitInfo,
     showToast,
     getEditorPath: () => editorFilePath,
-    getPrimaryPtyId: () => termInstances.get(primaryPaneId)?.ptyId,
+    getPrimaryPtyId: () => {
+      const ws = agentPanelWs();
+      const pid = ws?.paneIds?.[0];
+      return pid ? termInstances.get(pid)?.ptyId : termInstances.get(primaryPaneId)?.ptyId;
+    },
     getPtyId: (paneId) => termInstances.get(paneId)?.ptyId,
-    listPanes: () => activeWs()?.paneIds || [],
+    listPanes: () => agentPanelWs()?.paneIds || [],
     getPanePersona: (paneId) => state.panes[paneId]?.persona || "Agent",
     getPersonas: () => bootstrap?.personas || [],
     addPane: (persona) => addPane(persona),
+    onDelegateChange: () => populateAgentPersona(),
   });
 
   document.addEventListener("keydown", (e) => {
@@ -264,7 +272,8 @@ async function init() {
         if (wsId === state.activeWorkspace) pulseActivity(paneId);
       }
     }
-    if (wsId !== state.activeWorkspace) return;
+    const agentWsId = state.agentPanelWorkspaceId || state.activeWorkspace;
+    if (wsId !== agentWsId) return;
     window.QuillFeatures?.parseAgentStream(data);
     if (shouldStreamPtyToAgentChat()) appendAgentStream(data);
     const editMatch = data.match(/\[QUILL_EDIT:([^\]\r\n]+)\]/);
@@ -393,7 +402,7 @@ function updateAgentStoppedOverlay(ws) {
 
 function updateAgentComposerState() {
   const wrap = document.querySelector(".agent-composer-wrap");
-  const ws = activeWs();
+  const ws = agentPanelWs();
   wrap?.classList.toggle("agent-disabled", Boolean(ws?.agentStopped));
 }
 
@@ -414,7 +423,7 @@ async function stopWorkspaceAgent(wsId) {
   renderWorkspaces();
   updateWorkspaceHead();
   updateAgentComposerState();
-  if (wsId === state.activeWorkspace) bindGlobalComposer();
+  if (wsId === (state.agentPanelWorkspaceId || state.activeWorkspace)) bindGlobalComposer();
 }
 
 async function startWorkspaceAgent(wsId) {
@@ -422,9 +431,11 @@ async function startWorkspaceAgent(wsId) {
   if (!ws || !ws.agentStopped) return;
   ws.agentStopped = false;
   persist();
-  if (wsId === state.activeWorkspace) {
-    await ensureWorkspaceUI(ws);
+  await ensureWorkspaceUI(ws);
+  const panelWs = state.agentPanelWorkspaceId || state.activeWorkspace;
+  if (wsId === panelWs) {
     bindGlobalComposer();
+    populateAgentPersona();
     window.QuillCowork?.populateDelegateSelect();
   }
   updateAgentStoppedOverlay(ws);
@@ -472,6 +483,24 @@ function showWsContextMenu(e, ws) {
   switchBtn.textContent = "Switch workspace";
   switchBtn.onclick = () => { hideWsContextMenu(); void switchWorkspace(ws.id); };
   menu.appendChild(switchBtn);
+  const openFolderBtn = document.createElement("button");
+  openFolderBtn.type = "button";
+  openFolderBtn.textContent = "Open folder";
+  openFolderBtn.onclick = () => { hideWsContextMenu(); void openFolderForWorkspace(ws.id); };
+  menu.appendChild(openFolderBtn);
+  const renameBtn = document.createElement("button");
+  renameBtn.type = "button";
+  renameBtn.textContent = "Rename";
+  renameBtn.onclick = () => { hideWsContextMenu(); renameWorkspace(ws.id); };
+  menu.appendChild(renameBtn);
+  if (state.workspaces.length > 1) {
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "danger";
+    closeBtn.textContent = "Close workspace";
+    closeBtn.onclick = () => { hideWsContextMenu(); void closeWorkspace(ws.id); };
+    menu.appendChild(closeBtn);
+  }
   document.body.appendChild(menu);
   wsContextMenuEl = menu;
   const close = (ev) => {
@@ -506,10 +535,21 @@ function bindAgentStreamToggle() {
 
 function focusWorkspaceTerminal() {
   const ws = activeWs();
-  const paneId = ws?.paneIds?.[0];
-  const host = paneId ? document.getElementById(`term-${paneId}`) : null;
+  if (!ws) return;
+  showWorkspaceGrid(ws.id);
+  const paneId = (primaryPaneId && ws.paneIds?.includes(primaryPaneId))
+    ? primaryPaneId
+    : ws.paneIds?.[0];
+  if (paneId) focusPane(paneId);
+}
+
+function focusPane(paneId) {
+  primaryPaneId = paneId;
+  const host = document.getElementById(`term-${paneId}`);
+  termInstances.get(paneId)?.term?.focus();
   host?.focus();
   fitActiveTerminals();
+  bindGlobalComposer();
 }
 
 function updateWorkspaceHead() {
@@ -517,7 +557,6 @@ function updateWorkspaceHead() {
   const nameEl = document.getElementById("ws-center-name");
   const personaEl = document.getElementById("ws-center-persona");
   const dot = document.getElementById("ws-head-dot");
-  const label = document.getElementById("agent-ws-label");
   const toggleBtn = document.getElementById("ws-toggle-agent");
   if (!ws) return;
   if (nameEl) nameEl.textContent = ws.name;
@@ -525,7 +564,6 @@ function updateWorkspaceHead() {
   const pid = ws.paneIds?.[0];
   const persona = pid ? state.panes[pid]?.persona : "";
   if (personaEl) personaEl.textContent = persona ? `· ${persona}` : "";
-  if (label) label.textContent = ws.name;
   if (toggleBtn) {
     const stopped = Boolean(ws.agentStopped);
     toggleBtn.textContent = stopped ? "Start agent" : "Stop agent";
@@ -580,12 +618,25 @@ function updateTitlebar() {
 }
 
 function toggleTerminalPanel() {
-  focusWorkspaceTerminal();
+  const ws = activeWs();
+  if (!ws) return;
+  showWorkspaceGrid(ws.id);
+  const activeEl = document.activeElement;
+  const focusedInTerminal = ws.paneIds?.some((id) => {
+    const host = document.getElementById(`term-${id}`);
+    return host?.contains(activeEl);
+  });
+  if (focusedInTerminal) void addPane();
+  else focusWorkspaceTerminal();
 }
 
 function bindActivityBar() {
   document.querySelectorAll(".activity-btn[data-panel]").forEach((btn) => {
     btn.onclick = () => {
+      if (btn.dataset.panel === "settings") {
+        openSettings("appearance");
+        return;
+      }
       activeSidePanel = btn.dataset.panel;
       if (activeSidePanel === "agent") {
         if (agentPanelMode === "closed") setAgentPanelMode("open");
@@ -629,12 +680,25 @@ function bindSideSearch() {
   };
 }
 
+function getAgentDelegatePaneId(ws) {
+  const sel = document.getElementById("agent-delegate");
+  const val = sel?.value || "primary";
+  if (val === "primary" || val === "spawn") return ws?.paneIds?.[0];
+  if (ws?.paneIds?.includes(val)) return val;
+  return ws?.paneIds?.[0];
+}
+
 function populateAgentPersona() {
   const sel = document.getElementById("agent-persona");
-  const ws = activeWs();
-  const paneId = ws?.paneIds?.[0];
+  const ws = agentPanelWs();
+  const paneId = getAgentDelegatePaneId(ws);
   if (!sel || !bootstrap?.personas || !paneId) return;
   const meta = state.panes[paneId] || { persona: "Iris" };
+  const paneCount = ws?.paneIds?.length || 1;
+  const paneIdx = (ws.paneIds || []).indexOf(paneId);
+  const paneLabel = paneCount > 1 ? `Pane ${paneIdx + 1}` : "Primary pane";
+  sel.title = `${paneLabel} persona`;
+  sel.setAttribute("aria-label", `${paneLabel} persona`);
   sel.innerHTML = bootstrap.personas.map((p) =>
     `<option value="${escHtml(p)}"${p === meta.persona ? " selected" : ""}>${escHtml(p)}</option>`
   ).join("");
@@ -642,6 +706,7 @@ function populateAgentPersona() {
     state.panes[paneId].persona = sel.value;
     persist();
     await remountPane(paneId);
+    window.QuillCowork?.populateDelegateSelect();
   };
 }
 
@@ -649,8 +714,8 @@ function bindGlobalComposer() {
   const input = document.getElementById("agent-composer-input");
   const send = document.getElementById("agent-composer-send");
   const wrap = input?.closest(".agent-composer-wrap");
-  const ws = activeWs();
-  primaryPaneId = ws?.paneIds?.[0] || primaryPaneId;
+  const ws = agentPanelWs();
+  primaryPaneId = getAgentDelegatePaneId(ws) || ws?.paneIds?.[0] || primaryPaneId;
   const t = primaryPaneId ? termInstances.get(primaryPaneId) : null;
   if (!input || !send || !t) return;
 
@@ -684,7 +749,7 @@ function bindGlobalComposer() {
     if (at < 0 || (at > 0 && !/\s/.test(val[at - 1]))) { hideMentionMenu(); return; }
     mentionAt = at;
     void (async () => {
-      const ws = activeWs();
+      const ws = agentPanelWs();
       if (!ws?.cwd) return;
       hideMentionMenu();
       const res = await window.quill.searchFiles({ cwd: ws.cwd, query: val.slice(at + 1), limit: 8 });
@@ -712,6 +777,37 @@ function activeWs() {
   return state.workspaces.find((w) => w.id === state.activeWorkspace) || state.workspaces[0];
 }
 
+function agentPanelWs() {
+  const id = state.agentPanelWorkspaceId || state.activeWorkspace;
+  return state.workspaces.find((w) => w.id === id) || activeWs();
+}
+
+function renderAgentPanelWorkspaceSelect() {
+  const sel = document.getElementById("agent-ws-select");
+  if (!sel) return;
+  const cur = state.agentPanelWorkspaceId || state.activeWorkspace;
+  sel.innerHTML = state.workspaces.map((ws) =>
+    `<option value="${escHtml(ws.id)}"${ws.id === cur ? " selected" : ""}>${escHtml(ws.name)}</option>`
+  ).join("");
+}
+
+function bindAgentPanelWorkspaceSelect() {
+  const sel = document.getElementById("agent-ws-select");
+  if (!sel || sel._bound) return;
+  sel._bound = true;
+  sel.onchange = () => {
+    const id = sel.value;
+    if (id === state.agentPanelWorkspaceId) return;
+    saveAgentChat(state.agentPanelWorkspaceId);
+    state.agentPanelWorkspaceId = id;
+    persist();
+    restoreAgentChat(id);
+    populateAgentPersona();
+    bindGlobalComposer();
+    window.QuillCowork?.populateDelegateSelect();
+  };
+}
+
 function applyTheme() {
   const t = bootstrap?.themes?.[state.theme] || bootstrap?.themes?.dark;
   for (const key of THEME_CSS_VARS) {
@@ -737,15 +833,16 @@ function renderWorkspaces() {
   ul.innerHTML = "";
   state.workspaces.forEach((ws) => {
     const li = document.createElement("li");
+    const running = isWorkspaceAgentRunning(ws);
     li.className = "ws-item"
       + (ws.id === state.activeWorkspace ? " active" : "")
       + (ws.agentStopped ? " agent-stopped" : "");
-    li.style.setProperty("--ws-color", ws.color);
     const folders = (ws.folders || []).length;
     const git = gitCache[ws.id];
     const gitLabel = git?.branch ? `${git.branch}${git.changes ? ` · ${git.changes}` : ""}` : "";
     const paneBadge = `${ws.paneIds?.length || 1}${folders > 1 ? ` · ${folders} folders` : ""}`;
-    li.innerHTML = `<span class="ws-dot"></span><span>${escHtml(ws.name)}</span><span class="ws-badge">${escHtml(gitLabel || paneBadge)}</span>`;
+    const dotClass = running ? "agent-running" : "agent-idle";
+    li.innerHTML = `<span class="ws-dot ${dotClass}"></span><span>${escHtml(ws.name)}</span><span class="ws-badge">${escHtml(gitLabel || paneBadge)}</span>`;
     const actions = document.createElement("div");
     actions.className = "ws-item-actions";
     if (isWorkspaceAgentRunning(ws)) {
@@ -773,6 +870,7 @@ function renderWorkspaces() {
     };
     ul.appendChild(li);
   });
+  renderAgentPanelWorkspaceSelect();
 }
 
 async function refreshGitInfo(ws = activeWs()) {
@@ -805,38 +903,91 @@ function updateGitStatus() {
   }
 }
 
+const SCM_STATUS_LABELS = {
+  M: "Modified",
+  A: "Added",
+  D: "Deleted",
+  R: "Renamed",
+  "?": "Untracked",
+};
+
+function scmStatusLabel(code) {
+  return SCM_STATUS_LABELS[code] || code;
+}
+
+function relToWorkspace(absPath, workspaceCwd) {
+  const a = String(absPath || "").replace(/\\/g, "/");
+  const w = String(workspaceCwd || "").replace(/\\/g, "/").replace(/\/$/, "");
+  if (!w) return null;
+  const prefix = `${w}/`;
+  if (a.toLowerCase().startsWith(prefix.toLowerCase())) return a.slice(prefix.length);
+  return null;
+}
+
+function renderScmFileRow(f, ws) {
+  const displayPath = relToWorkspace(f.absPath, ws.cwd) || f.path;
+  const label = scmStatusLabel(f.status);
+  const unstaged = !f.staged || (f.worktree !== " " && f.worktree !== "?");
+  return `
+    <li class="scm-file${f.staged ? " staged" : ""}${unstaged && f.staged ? " partial" : ""}" data-path="${escHtml(f.absPath)}">
+      <span class="scm-code scm-code-${f.status}" title="${escHtml(label)}">${escHtml(label)}</span>
+      <span class="scm-name" title="${escHtml(f.path)}">${escHtml(displayPath)}</span>
+      ${unstaged ? `<button type="button" class="scm-stage-one" data-rel="${escHtml(f.path)}" title="Stage">+</button>` : ""}
+    </li>`;
+}
+
+function bindScmFileRows(container) {
+  container.querySelectorAll(".scm-file").forEach((li) => {
+    li.onclick = (e) => {
+      if (e.target.closest(".scm-stage-one")) return;
+      openFileInEditor(li.dataset.path);
+    };
+  });
+  container.querySelectorAll(".scm-stage-one").forEach((btn) => {
+    btn.onclick = async (e) => {
+      e.stopPropagation();
+      await stageFiles([btn.dataset.rel]);
+    };
+  });
+}
+
 async function refreshScmPanel() {
   const ws = activeWs();
-  const ul = document.getElementById("scm-files");
+  const container = document.getElementById("scm-files");
   const statusEl = document.getElementById("scm-status");
-  if (!ws?.cwd || !ul) return;
+  if (!ws?.cwd || !container) return;
   const res = await window.quill.gitStatusFiles(ws.cwd);
   if (!res.ok) {
-    ul.innerHTML = `<li class="scm-empty">${escHtml(res.error || "Not a git repo")}</li>`;
+    container.innerHTML = `<p class="scm-empty">${escHtml(res.error || "Not a git repo")}</p>`;
     return;
   }
-  if (!res.files.length) {
-    ul.innerHTML = `<li class="scm-empty">No changes</li>`;
-  } else {
-    ul.innerHTML = res.files.map((f) => `
-      <li class="scm-file${f.staged ? " staged" : ""}" data-path="${escHtml(f.absPath)}">
-        <span class="scm-code scm-code-${f.status}">${escHtml(f.status)}</span>
-        <span class="scm-name" title="${escHtml(f.path)}">${escHtml(f.path)}</span>
-        ${!f.staged ? `<button type="button" class="scm-stage-one" data-rel="${escHtml(f.path)}" title="Stage">+</button>` : ""}
-      </li>`).join("");
-    ul.querySelectorAll(".scm-file").forEach((li) => {
-      li.onclick = (e) => {
-        if (e.target.closest(".scm-stage-one")) return;
-        openFileInEditor(li.dataset.path);
-      };
-    });
-    ul.querySelectorAll(".scm-stage-one").forEach((btn) => {
-      btn.onclick = async (e) => {
-        e.stopPropagation();
-        await stageFiles([btn.dataset.rel]);
-      };
-    });
+  const staged = res.files.filter((f) => f.staged);
+  const unstaged = res.files.filter((f) => !f.staged || (f.worktree !== " " && f.worktree !== "?"));
+  const showRepoHint = res.repoRoot && !pathsEqual(res.repoRoot, ws.cwd);
+  const parts = [];
+  if (showRepoHint) {
+    parts.push(`<p class="scm-repo-hint" title="${escHtml(res.repoRoot)}">Repo: ${escHtml(res.repoRoot)}</p>`);
   }
+  if (!res.files.length) {
+    parts.push(`<p class="scm-empty">No changes</p>`);
+  } else {
+    if (staged.length) {
+      parts.push(`
+        <section class="scm-section">
+          <h4 class="scm-section-title">Staged (${staged.length})</h4>
+          <ul class="scm-list">${staged.map((f) => renderScmFileRow(f, ws)).join("")}</ul>
+        </section>`);
+    }
+    if (unstaged.length) {
+      parts.push(`
+        <section class="scm-section">
+          <h4 class="scm-section-title">Changes (${unstaged.length})</h4>
+          <ul class="scm-list">${unstaged.map((f) => renderScmFileRow(f, ws)).join("")}</ul>
+        </section>`);
+    }
+  }
+  container.innerHTML = parts.join("");
+  bindScmFileRows(container);
   if (statusEl && !statusEl.dataset.sticky) statusEl.textContent = "";
 }
 
@@ -1264,19 +1415,14 @@ function renderWsFolderRoots() {
 
 async function switchWorkspace(id) {
   if (id === state.activeWorkspace) return;
-  saveAgentChat(state.activeWorkspace);
   state.activeWorkspace = id;
   persist();
   renderWorkspaces();
   await ensureWorkspaceUI(activeWs());
   showWorkspaceGrid(id);
-  restoreAgentChat(id);
   await refreshGitInfo();
   expandedDirs.clear();
   await renderFileTree();
-  populateAgentPersona();
-  bindGlobalComposer();
-  window.QuillCowork?.populateDelegateSelect();
   updateTitlebar();
   closeEditor();
 }
@@ -1286,10 +1432,7 @@ async function ensureWorkspaceUI(ws) {
   const grid = getWsGrid(ws);
   if (!grid) return;
 
-  ws.layout = ws.layout || "grid-1x1";
   ws.panes = ws.paneIds?.length || 1;
-  grid.className = `pane-grid ${ws.layout || "grid-1x1"} ws-pane-grid`;
-  if (grid.dataset.wsId !== ws.id) grid.dataset.wsId = ws.id;
 
   if (!ws.paneIds?.length) {
     const paneId = `pane-${ws.id}-0`;
@@ -1297,53 +1440,103 @@ async function ensureWorkspaceUI(ws) {
     state.panes[paneId] = { persona: "Iris", mode: "agent" };
   }
 
-  const split = ws.paneIds.length === 2;
-  const needsDom = !ws.paneIds.every((id) => document.getElementById(`term-${id}`));
-  if (needsDom) {
-    grid.innerHTML = "";
-    if (split) {
-      ws.splitPct = ws.splitPct ?? 50;
-      grid.classList.add("split-h2");
-      grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
-    } else {
-      grid.classList.remove("split-h2");
-      grid.style.gridTemplateColumns = "";
-      grid.style.gridTemplateRows = "";
-    }
-    for (let i = 0; i < ws.paneIds.length; i++) {
-      const paneId = ws.paneIds[i];
-      grid.appendChild(createPaneElement(paneId, ws));
-      if (split && i === 0) {
-        const gutter = document.createElement("div");
-        gutter.className = "pane-split-gutter";
-        gutter.onmousedown = (e) => {
-          e.preventDefault();
-          const startX = e.clientX;
-          const startPct = ws.splitPct;
-          const onMove = (ev) => {
-            const delta = ev.clientX - startX;
-            const w = grid.clientWidth || 1;
-            ws.splitPct = Math.min(80, Math.max(20, startPct + (delta / w) * 100));
-            grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
-            fitActiveTerminals();
-          };
-          const onUp = () => {
-            persist();
-            document.removeEventListener("mousemove", onMove);
-            document.removeEventListener("mouseup", onUp);
-          };
-          document.addEventListener("mousemove", onMove);
-          document.addEventListener("mouseup", onUp);
-        };
-        grid.appendChild(gutter);
-      }
-    }
-  }
+  applyGridLayout(grid, ws);
+  syncGridPanes(grid, ws);
 
   for (const paneId of ws.paneIds) {
     if (!ws.agentStopped && !termInstances.has(paneId)) await mountTerminal(paneId, ws);
   }
   updateAgentStoppedOverlay(ws);
+}
+
+function layoutForPaneCount(n) {
+  if (n <= 1) return "grid-1x1";
+  if (n === 2) return "split-h2";
+  if (n <= 4) return "grid-2x2";
+  return "grid-3x2";
+}
+
+function applyGridLayout(grid, ws) {
+  const layout = layoutForPaneCount(ws.paneIds.length);
+  ws.layout = layout;
+  grid.className = `pane-grid ${layout} ws-pane-grid`;
+  if (grid.dataset.wsId !== ws.id) grid.dataset.wsId = ws.id;
+
+  if (layout === "split-h2") {
+    ws.splitPct = ws.splitPct ?? 50;
+    grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
+    grid.style.gridTemplateRows = "";
+  } else {
+    grid.style.gridTemplateColumns = "";
+    grid.style.gridTemplateRows = "";
+  }
+}
+
+function createSplitGutter(grid, ws) {
+  const gutter = document.createElement("div");
+  gutter.className = "pane-split-gutter";
+  gutter.onmousedown = (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startPct = ws.splitPct;
+    const onMove = (ev) => {
+      const delta = ev.clientX - startX;
+      const w = grid.clientWidth || 1;
+      ws.splitPct = Math.min(80, Math.max(20, startPct + (delta / w) * 100));
+      grid.style.gridTemplateColumns = `${ws.splitPct}% 5px 1fr`;
+      fitActiveTerminals();
+    };
+    const onUp = () => {
+      persist();
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+  return gutter;
+}
+
+function syncGridPanes(grid, ws) {
+  const split = ws.paneIds.length === 2;
+  const paneMap = new Map();
+  grid.querySelectorAll(".pane").forEach((p) => {
+    paneMap.set(p.dataset.paneId, p);
+    p.remove();
+  });
+  grid.querySelectorAll(".pane-split-gutter").forEach((g) => g.remove());
+
+  for (let i = 0; i < ws.paneIds.length; i++) {
+    const paneId = ws.paneIds[i];
+    let paneEl = paneMap.get(paneId);
+    if (!paneEl) paneEl = createPaneElement(paneId, ws);
+    else updatePaneHeader(paneEl, paneId);
+    grid.appendChild(paneEl);
+    if (split && i === 0) grid.appendChild(createSplitGutter(grid, ws));
+  }
+}
+
+function updatePaneHeader(paneEl, paneId) {
+  const meta = state.panes[paneId];
+  if (!meta) return;
+  const personaEl = paneEl.querySelector(".pane-persona");
+  if (personaEl) personaEl.textContent = meta.persona;
+}
+
+function bindPaneHeader(el, paneId) {
+  const header = el.querySelector(".pane-header");
+  header?.addEventListener("click", (e) => {
+    if (e.target.closest(".pane-close")) return;
+    focusPane(paneId);
+  });
+  header?.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    showPaneContextMenu(e, paneId);
+  });
+  el.querySelector(".pane-close")?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    void removePane(paneId);
+  });
 }
 
 async function renderPanes() {
@@ -1364,15 +1557,23 @@ async function renderPanes() {
 function createPaneElement(paneId, ws) {
   const meta = state.panes[paneId] || { persona: "Iris", mode: "agent" };
   state.panes[paneId] = meta;
-  primaryPaneId = paneId;
   const el = document.createElement("div");
   el.className = "pane";
-  el.innerHTML = `<div class="pane-term" id="term-${paneId}"></div>`;
+  el.dataset.paneId = paneId;
+  el.innerHTML = `
+    <div class="pane-header" data-pane-id="${paneId}">
+      <span class="pane-activity" id="activity-${paneId}"></span>
+      <span class="pane-persona">${escHtml(meta.persona)}</span>
+      <button type="button" class="pane-close" title="Close pane">×</button>
+    </div>
+    <div class="pane-term" id="term-${paneId}"></div>
+  `;
+  bindPaneHeader(el, paneId);
   return el;
 }
 
 async function remountPane(paneId) {
-  const ws = activeWs();
+  const ws = state.workspaces.find((w) => w.paneIds?.includes(paneId));
   if (!ws || ws.agentStopped) return;
   const t = termInstances.get(paneId);
   if (t) {
@@ -1509,6 +1710,8 @@ async function removePane(paneId) {
   ws.paneIds = ws.paneIds.filter((p) => p !== paneId);
   delete state.panes[paneId];
   ws.panes = ws.paneIds.length;
+  ws.layout = layoutForPaneCount(ws.paneIds.length);
+  if (primaryPaneId === paneId) primaryPaneId = ws.paneIds[0];
   persist();
   await renderPanes();
 }
@@ -1517,16 +1720,94 @@ async function addPane(personaOverride) {
   const ws = activeWs();
   if (!ws) return;
   if (ws.agentStopped) await startWorkspaceAgent(ws.id);
+  if (ws.paneIds.length >= 6) {
+    showToast("Maximum 6 terminal panes");
+    return;
+  }
   const paneId = `pane-${Date.now()}`;
   ws.paneIds = ws.paneIds || [];
   ws.paneIds.push(paneId);
   const persona = personaOverride || bootstrap.personas[ws.paneIds.length % bootstrap.personas.length];
   state.panes[paneId] = { persona, mode: "agent" };
   ws.panes = ws.paneIds.length;
-  ws.layout = ws.paneIds.length <= 1 ? "grid-1x1" : ws.paneIds.length <= 4 ? "grid-2x2" : "grid-3x2";
+  ws.layout = layoutForPaneCount(ws.paneIds.length);
   persist();
   await renderPanes();
+  focusPane(paneId);
   window.QuillCowork?.populateDelegateSelect();
+}
+
+let paneContextMenuEl = null;
+function hidePaneContextMenu() {
+  paneContextMenuEl?.remove();
+  paneContextMenuEl = null;
+}
+
+function showPaneContextMenu(e, paneId) {
+  hidePaneContextMenu();
+  const ws = activeWs();
+  if (!ws) return;
+  const menu = document.createElement("div");
+  menu.className = "pane-context-menu";
+  menu.style.left = `${e.clientX}px`;
+  menu.style.top = `${e.clientY}px`;
+
+  const splitBtn = document.createElement("button");
+  splitBtn.type = "button";
+  splitBtn.textContent = "Split right";
+  splitBtn.onclick = () => { hidePaneContextMenu(); void splitPaneRight(paneId); };
+  menu.appendChild(splitBtn);
+
+  const dupBtn = document.createElement("button");
+  dupBtn.type = "button";
+  dupBtn.textContent = "Duplicate";
+  dupBtn.onclick = () => { hidePaneContextMenu(); void duplicatePane(paneId); };
+  menu.appendChild(dupBtn);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.className = "danger";
+  closeBtn.textContent = "Close";
+  closeBtn.onclick = () => { hidePaneContextMenu(); void removePane(paneId); };
+  if (ws.paneIds.length <= 1) closeBtn.disabled = true;
+  menu.appendChild(closeBtn);
+
+  document.body.appendChild(menu);
+  paneContextMenuEl = menu;
+  const close = (ev) => {
+    if (menu.contains(ev.target)) return;
+    hidePaneContextMenu();
+    document.removeEventListener("click", close);
+    document.removeEventListener("contextmenu", close);
+  };
+  setTimeout(() => {
+    document.addEventListener("click", close);
+    document.addEventListener("contextmenu", close);
+  }, 0);
+}
+
+async function splitPaneRight(paneId) {
+  const ws = activeWs();
+  if (!ws || ws.paneIds.length >= 6) {
+    showToast("Maximum 6 terminal panes");
+    return;
+  }
+  if (ws.agentStopped) await startWorkspaceAgent(ws.id);
+  const idx = ws.paneIds.indexOf(paneId);
+  const meta = state.panes[paneId];
+  const newPaneId = `pane-${Date.now()}`;
+  ws.paneIds.splice(idx + 1, 0, newPaneId);
+  state.panes[newPaneId] = { persona: meta?.persona || "Iris", mode: meta?.mode || "agent" };
+  ws.panes = ws.paneIds.length;
+  ws.layout = layoutForPaneCount(ws.paneIds.length);
+  persist();
+  await renderPanes();
+  focusPane(newPaneId);
+}
+
+async function duplicatePane(paneId) {
+  const meta = state.panes[paneId];
+  await addPane(meta?.persona);
 }
 
 async function openFolder() {
@@ -1586,9 +1867,80 @@ async function openWorkspaceFile() {
   ws.paneIds.forEach((pid) => {
     if (!state.panes[pid]) state.panes[pid] = { persona: "Iris", mode: "agent" };
   });
-  state.activeWorkspace = ws.id;
   persist();
   await switchWorkspace(ws.id);
+}
+
+async function closeWorkspace(wsId) {
+  if (state.workspaces.length <= 1) {
+    showToast("Can't close the last workspace");
+    return;
+  }
+  const ws = state.workspaces.find((w) => w.id === wsId);
+  if (!ws) return;
+  if (state.agentPanelWorkspaceId === wsId) saveAgentChat(wsId);
+  for (const paneId of ws.paneIds || []) {
+    const t = termInstances.get(paneId);
+    if (t) {
+      await window.quill.ptyKill(t.ptyId);
+      t.term.dispose();
+      termInstances.delete(paneId);
+    }
+    delete state.panes[paneId];
+  }
+  delete wsChats[wsId];
+  document.getElementById(`pane-grid-${wsId}`)?.remove();
+  state.workspaces = state.workspaces.filter((w) => w.id !== wsId);
+  if (state.activeWorkspace === wsId) {
+    state.activeWorkspace = state.workspaces[0].id;
+    await switchWorkspace(state.activeWorkspace);
+  } else {
+    renderWorkspaces();
+  }
+  if (state.agentPanelWorkspaceId === wsId) {
+    state.agentPanelWorkspaceId = state.activeWorkspace;
+    persist();
+    restoreAgentChat(state.agentPanelWorkspaceId);
+    populateAgentPersona();
+    bindGlobalComposer();
+    window.QuillCowork?.populateDelegateSelect();
+  } else {
+    persist();
+  }
+  showToast(`Closed ${ws.name}`);
+}
+
+function renameWorkspace(wsId) {
+  const ws = state.workspaces.find((w) => w.id === wsId);
+  if (!ws) return;
+  const name = prompt("Rename workspace", ws.name);
+  if (!name?.trim()) return;
+  ws.name = name.trim();
+  persist();
+  renderWorkspaces();
+  if (wsId === state.activeWorkspace) updateWorkspaceHead();
+}
+
+async function openFolderForWorkspace(wsId) {
+  const folder = await window.quill.pickFolder();
+  if (!folder) return;
+  const ws = state.workspaces.find((w) => w.id === wsId);
+  if (!ws) return;
+  ws.cwd = folder;
+  ws.named = true;
+  if (!ws.folders) ws.folders = [];
+  if (!ws.folders.includes(folder)) ws.folders.unshift(folder);
+  ws.name = folder.split(/[/\\]/).pop() || ws.name;
+  persist();
+  renderWorkspaces();
+  if (wsId === state.activeWorkspace) {
+    await refreshGitInfo();
+    expandedDirs.clear();
+    await renderFileTree();
+    updateTitlebar();
+    updateWorkspaceHead();
+  }
+  showToast(`Workspace folder: ${ws.name}`);
 }
 
 function addWorkspace() {
@@ -1607,7 +1959,6 @@ function addWorkspace() {
     named: false,
   });
   state.panes[paneId] = { persona: bootstrap.personas[i % bootstrap.personas.length], mode: "agent" };
-  state.activeWorkspace = id;
   persist();
   void switchWorkspace(id);
 }
@@ -1656,9 +2007,13 @@ async function importWorkspaceSync() {
   const res = await window.quill.importWorkspaceSync();
   if (!res.ok) { showToast(res.error || "Import failed"); return; }
   Object.assign(state, res.state);
+  if (!state.agentPanelWorkspaceId) state.agentPanelWorkspaceId = state.activeWorkspace;
   persist();
   renderWorkspaces();
+  renderAgentPanelWorkspaceSelect();
+  bindAgentPanelWorkspaceSelect();
   await renderPanes();
+  restoreAgentChat(state.agentPanelWorkspaceId);
   await refreshGitInfo();
   await renderFileTree();
   showToast("Workspace imported");
@@ -1675,7 +2030,7 @@ function handleAction(action) {
     "settings-appearance": () => openSettings("appearance"),
     "mcp-settings": () => openSettings("mcp"),
     "save-file": () => saveEditor(),
-    "toggle-terminal": () => focusWorkspaceTerminal(),
+    "toggle-terminal": () => toggleTerminalPanel(),
     "toggle-agent": () => toggleAgentPanel(),
     "focus-terminal": () => focusWorkspaceTerminal(),
     "toggle-browser": () => toggleBrowserPanel(),

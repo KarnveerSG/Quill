@@ -560,9 +560,36 @@ function parseGitStatusPorcelain(text, root) {
   });
 }
 
-async function gitStatusFilesForRoot(root) {
-  const out = await runGit(root, ["status", "--porcelain"]);
-  return parseGitStatusPorcelain(out, root);
+function normalizeGitPath(p) {
+  return path.resolve(p).replace(/\\/g, "/");
+}
+
+function isPathUnderDir(filePath, dirPath) {
+  const file = normalizeGitPath(filePath);
+  const dir = normalizeGitPath(dirPath);
+  if (process.platform === "win32") {
+    const fl = file.toLowerCase();
+    const dl = dir.toLowerCase();
+    return fl === dl || fl.startsWith(`${dl}/`);
+  }
+  return file === dir || file.startsWith(`${dir}/`);
+}
+
+async function gitRevParseRoot(cwd) {
+  const res = await runGitEx(cwd, ["rev-parse", "--show-toplevel"]);
+  if (!res.ok || !res.stdout) return null;
+  return path.resolve(res.stdout);
+}
+
+function filterGitFilesUnderCwd(files, workspaceCwd) {
+  return files.filter((f) => isPathUnderDir(f.absPath, workspaceCwd));
+}
+
+async function gitStatusFilesForRoot(repoRoot, workspaceCwd = null) {
+  const out = await runGit(repoRoot, ["status", "--porcelain"]);
+  let files = parseGitStatusPorcelain(out, repoRoot);
+  if (workspaceCwd) files = filterGitFilesUnderCwd(files, workspaceCwd);
+  return files;
 }
 
 ipcMain.handle("get-git-info", async (_e, cwd) => {
@@ -574,11 +601,13 @@ ipcMain.handle("get-git-info", async (_e, cwd) => {
 });
 
 ipcMain.handle("git-status-files", async (_e, cwd) => {
-  const root = resolveWorkspaceCwd(cwd);
-  const check = await runGitEx(root, ["rev-parse", "--is-inside-work-tree"]);
-  if (!check.ok) return { ok: false, error: check.error, files: [] };
-  const files = await gitStatusFilesForRoot(root);
-  return { ok: true, files };
+  const workspaceCwd = path.resolve(resolveWorkspaceCwd(cwd));
+  const check = await runGitEx(workspaceCwd, ["rev-parse", "--is-inside-work-tree"]);
+  if (!check.ok) return { ok: false, error: check.error, files: [], repoRoot: null };
+  const repoRoot = await gitRevParseRoot(workspaceCwd);
+  if (!repoRoot) return { ok: false, error: "Not a git repository", files: [], repoRoot: null };
+  const files = await gitStatusFilesForRoot(repoRoot, workspaceCwd);
+  return { ok: true, files, repoRoot };
 });
 
 ipcMain.handle("git-branches", async (_e, cwd) => {

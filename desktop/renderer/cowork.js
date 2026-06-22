@@ -163,6 +163,10 @@ const QuillCowork = (() => {
       html += `<option value="${esc(pid)}">Pane ${i + 1}: ${esc(persona)}</option>`;
     });
     sel.innerHTML = html;
+    if (!sel._delegateBound) {
+      sel._delegateBound = true;
+      sel.onchange = () => deps.onDelegateChange?.();
+    }
   }
 
   async function resolveDelegateTarget() {

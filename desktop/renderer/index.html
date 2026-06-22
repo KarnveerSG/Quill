@@ -51,19 +51,22 @@
 
   <div class="app-shell">
     <nav class="activity-bar" id="activity-bar">
-      <button type="button" class="activity-btn active" data-panel="explorer" title="Explorer">◫</button>
-      <button type="button" class="activity-btn" data-panel="scm" title="Source Control">⑂<span class="activity-badge hidden" id="scm-badge">0</span></button>
-      <button type="button" class="activity-btn" data-panel="search" title="Search">⌕</button>
-      <button type="button" class="activity-btn" data-panel="agent" title="Agent">✦</button>
+      <button type="button" class="activity-btn active" data-panel="explorer" title="Explorer"><span class="activity-icon" aria-hidden="true">◫</span></button>
+      <button type="button" class="activity-btn" data-panel="scm" title="Source Control"><span class="activity-icon" aria-hidden="true">⑂</span><span class="activity-badge hidden" id="scm-badge">0</span></button>
+      <button type="button" class="activity-btn" data-panel="search" title="Search"><span class="activity-icon" aria-hidden="true">⌕</span></button>
+      <button type="button" class="activity-btn" data-panel="agent" title="Agent"><span class="activity-icon" aria-hidden="true">✦</span></button>
       <button type="button" class="activity-btn activity-spacer" disabled aria-hidden="true"></button>
-      <button type="button" class="activity-btn" data-panel="settings" title="Settings">⚙</button>
+      <button type="button" class="activity-btn" data-panel="settings" title="Settings"><span class="activity-icon" aria-hidden="true">⚙</span></button>
     </nav>
 
     <aside class="side-panel" id="side-panel">
       <div class="panel-view active" data-view="explorer">
         <div class="panel-header">
           <span>EXPLORER</span>
-          <button type="button" class="panel-action" id="add-workspace" title="Add workspace">+</button>
+          <div class="panel-header-actions">
+            <button type="button" class="panel-action" data-action="open-folder" title="Open folder">📂</button>
+            <button type="button" class="panel-action" id="add-workspace" title="Add workspace">+</button>
+          </div>
         </div>
         <ul id="workspace-list" class="ws-compact"></ul>
         <div id="ws-folder-roots" class="ws-folder-roots hidden"></div>
@@ -75,7 +78,7 @@
           <button type="button" class="scm-btn" id="scm-stage-all">Stage all</button>
           <button type="button" class="scm-btn scm-icon-btn" id="scm-refresh">↻</button>
         </div>
-        <ul id="scm-files" class="scm-files"></ul>
+        <div id="scm-files" class="scm-files"></div>
         <div class="scm-commit">
           <input type="text" id="scm-message" placeholder="Commit message…" autocomplete="off" />
           <button type="button" class="scm-btn scm-commit-btn" id="scm-commit">Commit</button>
@@ -115,7 +118,6 @@
         <div class="ws-head-actions">
           <button type="button" class="ws-head-btn" id="ws-toggle-agent" title="Stop or start workspace agent">Stop agent</button>
           <button type="button" class="ws-head-btn" id="ws-add-terminal" title="New terminal pane">+ Terminal</button>
-          <button type="button" class="ws-head-btn" data-action="open-folder" title="Set folder">Open folder</button>
         </div>
       </div>
       <div id="workspace-stage" class="workspace-stage"></div>
@@ -168,8 +170,8 @@
     <aside class="agent-panel" id="agent-panel">
       <header class="agent-header">
         <span class="agent-title">Agent</span>
-        <span class="agent-ws-label" id="agent-ws-label"></span>
-        <select class="pane-persona-select" id="agent-persona" title="Persona"></select>
+        <select class="agent-ws-select" id="agent-ws-select" title="Agent chat workspace"></select>
+        <select class="pane-persona-select" id="agent-persona" title="Primary pane persona"></select>
         <button type="button" class="agent-icon-btn agent-header-btn" id="agent-panel-minimize" title="Minimize panel">─</button>
         <button type="button" class="agent-icon-btn agent-header-btn" id="agent-panel-hide" title="Hide panel">×</button>
         <button type="button" class="agent-icon-btn agent-header-btn" id="agent-panel-expand" title="Expand panel">◀</button>
