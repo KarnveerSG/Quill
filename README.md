@@ -159,9 +159,22 @@ Living inventory of everything Quill can do. Updated per release.
 
 ### Settings
 - Appearance (dark / light)
-- MCP server add form (per-workspace)
-- Keybinding overrides → `~/.quill/keybindings.json`
+- **MCP** — per-workspace `.quill/mcp.json` editor (add / test / remove servers)
+- **MCP Skills** — per-workspace enable/disable toggle per configured server
+- **Keyboard** — Record-key capture editor, reset to defaults, saved to `~/.quill/keybindings.json`
 - Integrations panel with connect status
+- **First-run wizard** — 3 steps (provider → API key or LLM detection → open folder)
+
+### Agent control
+- **`/undo`** command palette entry reverts pending agent edits via `git checkout --` and signals the agent PTY
+- **Per-pane provider override** — right-click a pane → pick `auto` / `anthropic` / `cursor` / `local`; pane respawns with `QUILL_PROVIDER_OVERRIDE`
+- **Background completion notifications** — toast and (opt-in) OS notification on `[QUILL:TASK_DONE]` from a non-active workspace
+- **Prompt library** — save composer prompts to `~/.quill/prompts.json`, quick-insert into the composer with `{{file}}` placeholder expansion
+
+### Embedded browser (Cowork)
+- Back / forward / reload / DevTools controls
+- URL bar (Enter to navigate; bare text falls back to Google search)
+- Open externally
 
 ### Integrations / Misc
 - Cowork webview panel
