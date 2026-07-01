@@ -66,11 +66,7 @@ window.QuillModules = window.QuillModules || {};
     }
 
     if (S().settingsSection === "skills") {
-      el.innerHTML = `<div class="settings-page coming-soon-page">
-      <h3>MCP Skills</h3>
-      <p class="badge-soon">Coming Soon</p>
-      <p class="settings-sub">Configure MCP servers and agent skills from one panel.</p>
-    </div>`;
+      void renderSkillsPanel(el);
       return;
     }
 
@@ -302,6 +298,60 @@ window.QuillModules = window.QuillModules || {};
         status.textContent = `Reload failed: ${err.message || err}`;
       }
     };
+  }
+
+  async function renderSkillsPanel(el) {
+    el.innerHTML = `<div class="settings-page"><h3>Skills (MCP)</h3><p class="settings-sub">Loading…</p></div>`;
+    const workspaces = S().state.workspaces || [];
+    const configs = await Promise.all(workspaces.map(async (ws) => {
+      const res = ws?.cwd ? await window.quill.getMcpConfig(ws.cwd) : { config: { servers: {} } };
+      return { ws, servers: res?.config?.servers || {} };
+    }));
+    const rows = configs.map(({ ws, servers }) => {
+      const names = Object.keys(servers);
+      const cards = names.length
+        ? names.map((name) => {
+          const spec = servers[name] || {};
+          const enabled = spec.enabled !== false;
+          const args = (spec.args || []).join(" ");
+          return `<div class="skill-row">
+            <label class="mcp-toggle"><input type="checkbox" data-skill-toggle data-ws="${escHtml(ws.id)}" data-server="${escHtml(name)}"${enabled ? " checked" : ""} />
+              <span class="int-name">${escHtml(name)}</span></label>
+            <span class="settings-sub skill-cmd"><code>${escHtml(spec.command || "")} ${escHtml(args)}</code></span>
+          </div>`;
+        }).join("")
+        : `<p class="settings-sub">No MCP servers configured for this workspace. Open MCP settings to add one.</p>`;
+      return `<details class="integration-card" open>
+        <summary><span class="int-name">${escHtml(ws.name)}</span><span class="int-badge">${names.length} skill${names.length === 1 ? "" : "s"}</span></summary>
+        <div class="int-keys">${cards}</div>
+      </details>`;
+    }).join("");
+    el.innerHTML = `<div class="settings-page">
+      <div class="settings-page-head">
+        <div><h3>Skills (MCP)</h3>
+        <p class="settings-sub">Enable or disable an MCP server per workspace. Saved to each workspace's <code>.quill/mcp.json</code>.</p></div>
+        <button type="button" class="btn-secondary" id="skills-open-mcp">Open MCP settings…</button>
+      </div>
+      <div class="integration-list">${rows || `<p class="settings-sub">No workspaces yet.</p>`}</div>
+      <p class="settings-sub" id="skills-status"></p>
+    </div>`;
+    document.getElementById("skills-open-mcp")?.addEventListener("click", () => openSettings("mcp"));
+    el.querySelectorAll("[data-skill-toggle]").forEach((cb) => {
+      cb.addEventListener("change", async () => {
+        const wsId = cb.dataset.ws;
+        const server = cb.dataset.server;
+        const ws = workspaces.find((w) => w.id === wsId);
+        if (!ws?.cwd) return;
+        const cur = await window.quill.getMcpConfig(ws.cwd);
+        const cfg = { servers: { ...(cur?.config?.servers || {}) } };
+        if (!cfg.servers[server]) return;
+        if (cb.checked) delete cfg.servers[server].enabled;
+        else cfg.servers[server].enabled = false;
+        const res = await window.quill.saveMcpConfig(ws.cwd, cfg);
+        const status = document.getElementById("skills-status");
+        if (status) status.textContent = res?.ok ? `${server} ${cb.checked ? "enabled" : "disabled"} for ${ws.name}.` : "Save failed.";
+      });
+    });
   }
 
   function renderIntegrationCards() {

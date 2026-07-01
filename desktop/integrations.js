@@ -80,7 +80,7 @@ const SETTINGS_SECTIONS = [
   { id: "mcp", label: "MCP", icon: "⬡" },
   { id: "keybindings", label: "Keyboard", icon: "⌨" },
   { id: "extensions", label: "Extensions", icon: "⬢" },
-  { id: "skills", label: "MCP Skills", icon: "✦", comingSoon: true },
+  { id: "skills", label: "MCP Skills", icon: "✦" },
   { id: "remote", label: "Remote Integration", icon: "↗", comingSoon: true },
   { id: "terminal", label: "Terminal", icon: "▭" },
   { id: "about", label: "About", icon: "i" },
