@@ -102,6 +102,7 @@ window.QuillApp = window.QuillApp || {};
           return;
         }
         if (btn.dataset.panel === "tasks") window.QuillMultiAgent?.renderTaskBoard?.();
+        if (btn.dataset.panel === "debug") M.debug?.renderDebugPanel?.();
         document.querySelectorAll(".activity-btn[data-panel]").forEach((b) => {
           b.classList.toggle("active", b.dataset.panel === S().activeSidePanel);
         });
@@ -268,6 +269,7 @@ window.QuillApp = window.QuillApp || {};
     M.agentPanel.bindAgentStreamToggle();
     M.agentPanel.bindPromptLibrary();
     M.agentPanel.bindHistoryBrowser();
+    M.debug?.bind?.();
     document.getElementById("ws-add-terminal")?.addEventListener("click", () => M.terminals.addPane());
     document.getElementById("ws-toggle-agent")?.addEventListener("click", () => M.terminals.toggleWorkspaceAgent());
     document.getElementById("agent-panel-minimize")?.addEventListener("click", () => M.agentPanel.setAgentPanelMode("minimized"));

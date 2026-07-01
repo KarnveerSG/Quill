@@ -58,6 +58,7 @@
       <button type="button" class="activity-btn" data-panel="agent" title="Agent"><span class="activity-icon" aria-hidden="true">✦</span></button>
       <button type="button" class="activity-btn" id="agents-tray-btn" title="Running agents"><span class="activity-icon" aria-hidden="true">◎</span><span class="activity-badge hidden" id="agents-tray-badge">0</span></button>
       <button type="button" class="activity-btn" data-panel="tasks" title="Task board"><span class="activity-icon" aria-hidden="true">☑</span></button>
+      <button type="button" class="activity-btn" data-panel="debug" title="Debug"><span class="activity-icon" aria-hidden="true">▶</span></button>
       <button type="button" class="activity-btn activity-spacer" disabled aria-hidden="true"></button>
       <button type="button" class="activity-btn" data-panel="settings" title="Settings"><span class="activity-icon" aria-hidden="true">⚙</span></button>
     </nav>
@@ -96,6 +97,21 @@
       <div class="panel-view" data-view="tasks">
         <div class="panel-header"><span>TASKS</span></div>
         <ul id="task-board-list" class="task-board-list"></ul>
+      </div>
+      <div class="panel-view" data-view="debug">
+        <div class="panel-header"><span>DEBUG</span>
+          <div class="panel-header-actions">
+            <button type="button" class="panel-action" id="debug-new-config" title="New configuration">+</button>
+            <button type="button" class="panel-action" id="debug-edit-launch" title="Edit launch.json">✎</button>
+          </div>
+        </div>
+        <ul id="debug-config-list" class="task-board-list"></ul>
+        <div class="panel-header"><span>BREAKPOINTS</span>
+          <div class="panel-header-actions">
+            <button type="button" class="panel-action" id="debug-clear-breakpoints" title="Clear all">✕</button>
+          </div>
+        </div>
+        <ul id="debug-breakpoint-list" class="task-board-list"></ul>
       </div>
       <div class="panel-view" data-view="settings">
         <div class="panel-header"><span>SETTINGS</span></div>
@@ -165,6 +181,17 @@
         </div>
         <webview id="cowork-browser" src="about:blank" class="cowork-browser"></webview>
       </div>
+      <div id="debug-output" class="debug-output hidden">
+        <div class="debug-output-head">
+          <span id="debug-output-title">Debug output</span>
+          <div>
+            <button type="button" class="editor-tab-btn" id="debug-output-stop" title="Stop">■</button>
+            <button type="button" class="editor-tab-btn" id="debug-output-clear" title="Clear">⟳</button>
+            <button type="button" class="editor-tab-btn" id="debug-output-close" title="Close">×</button>
+          </div>
+        </div>
+        <pre id="debug-output-log" class="debug-output-log"></pre>
+      </div>
       <footer class="statusbar">
         <select id="status-branch" class="status-branch" title="Branch"></select>
         <span id="status-git-changes"></span>
@@ -226,6 +253,24 @@
   <div id="palette" class="palette hidden">
     <input id="palette-input" type="text" placeholder="> commands  @ files  # workspaces  :line" autocomplete="off" />
     <ul id="palette-list"></ul>
+  </div>
+
+  <div id="debug-config-modal" class="global-search hidden">
+    <div class="global-search-panel">
+      <header><span>Debug configuration</span><button type="button" id="debug-config-close">×</button></header>
+      <div class="spend-modal-body">
+        <label class="field-row"><span>Name</span><input type="text" id="dcfg-name" placeholder="Run Python" /></label>
+        <label class="field-row"><span>Program</span><input type="text" id="dcfg-program" placeholder="python" /></label>
+        <label class="field-row"><span>Args (space-separated)</span><input type="text" id="dcfg-args" placeholder="app.py" /></label>
+        <label class="field-row"><span>CWD (relative)</span><input type="text" id="dcfg-cwd" placeholder="." /></label>
+        <label class="field-row"><span>Env (KEY=VAL, comma-separated)</span><input type="text" id="dcfg-env" placeholder="DEBUG=1,PORT=3000" /></label>
+        <div style="margin-top:10px;display:flex;gap:8px">
+          <button type="button" class="btn-primary" id="dcfg-save">Save</button>
+          <button type="button" class="btn-secondary" id="dcfg-delete">Delete</button>
+          <span class="settings-sub" id="dcfg-status"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="rules-modal" class="global-search hidden">
@@ -310,6 +355,7 @@
   <script src="modules/agentPanel.js"></script>
   <script src="modules/settings.js"></script>
   <script src="modules/palette.js"></script>
+  <script src="modules/debug.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

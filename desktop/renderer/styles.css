@@ -168,6 +168,14 @@ html, body {
 .ws-branch-badge { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
 .ws-branch-badge:hover { color: var(--accent); }
 
+.debug-output { border-top: 1px solid var(--border); background: var(--bg-panel); max-height: 220px; display: flex; flex-direction: column; }
+.debug-output.hidden { display: none; }
+.debug-output-head { display: flex; align-items: center; padding: 4px 8px; border-bottom: 1px solid var(--border); font-size: 12px; }
+.debug-output-head #debug-output-title { flex: 1; color: var(--text-dim); }
+.debug-output-log { margin: 0; padding: 8px 12px; overflow: auto; flex: 1; font-family: Cascadia Code, Consolas, monospace; font-size: 12px; color: var(--text); white-space: pre-wrap; }
+.debug-output-log .stderr { color: #ff8a80; }
+.dbg-bp { background: rgba(255, 90, 90, 0.6); width: 6px !important; margin-left: 4px !important; border-radius: 50%; }
+
 .editor-split-row { display: flex; flex: 1; min-height: 0; }
 .editor-split-row > .editor-monaco { flex: 1; min-width: 0; }
 .editor-split-row > .editor-right { border-left: 1px solid var(--border); }

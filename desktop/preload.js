@@ -60,4 +60,11 @@ contextBridge.exposeInMainWorld("quill", {
   historyDelete: (opts) => ipcRenderer.invoke("history-delete", opts),
   semanticSearch: (opts) => ipcRenderer.invoke("semantic-search", opts),
   semanticIndexClear: (cwd) => ipcRenderer.invoke("semantic-index-clear", cwd),
+  debugGetConfig: (cwd) => ipcRenderer.invoke("debug-get-config", cwd),
+  debugSaveConfig: (opts) => ipcRenderer.invoke("debug-save-config", opts),
+  debugStart: (opts) => ipcRenderer.invoke("debug-start", opts),
+  debugStop: (opts) => ipcRenderer.invoke("debug-stop", opts),
+  debugList: () => ipcRenderer.invoke("debug-list"),
+  onDebugData: (cb) => ipcRenderer.on("debug-data", (_e, payload) => cb(payload)),
+  onDebugExit: (cb) => ipcRenderer.on("debug-exit", (_e, payload) => cb(payload)),
 });

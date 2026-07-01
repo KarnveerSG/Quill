@@ -1204,6 +1204,60 @@ ipcMain.handle("save-prompts", (_e, prompts) => {
   return { ok: true };
 });
 
+const debugSessions = new Map(); // id -> child process
+let debugCounter = 0;
+function launchConfigPath(cwd) {
+  return path.join(path.resolve(cwd || os.homedir()), ".quill", "launch.json");
+}
+ipcMain.handle("debug-get-config", (_e, cwd) => {
+  const f = launchConfigPath(cwd);
+  if (!fs.existsSync(f)) return { ok: true, config: { configurations: [] } };
+  try { return { ok: true, config: JSON.parse(fs.readFileSync(f, "utf8")) }; }
+  catch (e) { return { ok: false, error: String(e.message || e), config: { configurations: [] } }; }
+});
+ipcMain.handle("debug-save-config", (_e, { cwd, config }) => {
+  const f = launchConfigPath(cwd);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(config || { configurations: [] }, null, 2) + "\n", "utf8");
+  return { ok: true, path: f };
+});
+ipcMain.handle("debug-start", (_e, { cwd, name, program, args, cwd: runCwd, env }) => {
+  const id = `dbg-${++debugCounter}`;
+  const root = resolveWorkspaceCwd(cwd);
+  const workdir = runCwd ? path.resolve(root, runCwd) : root;
+  const proc = spawn(program, Array.isArray(args) ? args : [], {
+    cwd: workdir,
+    env: { ...process.env, ...(env || {}) },
+    shell: process.platform === "win32",
+    windowsHide: true,
+  });
+  debugSessions.set(id, proc);
+  const emit = (stream, data) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try { mainWindow.webContents.send("debug-data", { id, name, stream, data: data.toString() }); }
+    catch { /* ignore */ }
+  };
+  proc.stdout?.on("data", (d) => emit("stdout", d));
+  proc.stderr?.on("data", (d) => emit("stderr", d));
+  proc.on("error", (err) => emit("stderr", `[quill debug] ${err.message}\n`));
+  proc.on("exit", (code) => {
+    debugSessions.delete(id);
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    try { mainWindow.webContents.send("debug-exit", { id, name, code }); } catch { /* ignore */ }
+  });
+  return { ok: true, id };
+});
+ipcMain.handle("debug-stop", (_e, { id }) => {
+  const proc = debugSessions.get(id);
+  if (!proc) return { ok: false, error: "no session" };
+  forceKillProc(proc);
+  debugSessions.delete(id);
+  return { ok: true };
+});
+ipcMain.handle("debug-list", () => {
+  return { ok: true, sessions: [...debugSessions.keys()] };
+});
+
 ipcMain.handle("stat-path", (_e, p) => {
   try {
     const st = fs.statSync(path.resolve(p));

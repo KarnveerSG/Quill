@@ -81,6 +81,7 @@ const QuillFeatures = (() => {
     const fs = document.getElementById("status-file");
     if (fs) fs.textContent = filePath;
     await applyGutterDecorations(filePath);
+    try { window.QuillModules.debug?.applyGutterDecorations?.(filePath); window.QuillModules.debug?.bindGutterClicks?.(); } catch (_) {}
     await deps.setEditorTab("file");
   }
 
