@@ -173,6 +173,10 @@ window.QuillApp = window.QuillApp || {};
     }
     if (!S().state.workspaces?.length) M.workspaces.resetDefaultState();
     if (!S().state.agentPanelWorkspaceId) S().state.agentPanelWorkspaceId = S().state.activeWorkspace;
+    if (!S().state.panelWidths) S().state.panelWidths = { side: 280, agent: 360 };
+    for (const ws of S().state.workspaces || []) {
+      if (!Array.isArray(ws.openFiles)) ws.openFiles = [];
+    }
     applyTheme();
     M.workspaces.renderWorkspaces();
     M.agentPanel.renderAgentPanelWorkspaceSelect();
@@ -245,6 +249,13 @@ window.QuillApp = window.QuillApp || {};
       getState: () => S().state,
       _lspRegistered: false,
     });
+
+    (async () => {
+      const ws = M.workspaces.activeWs();
+      if (ws?.openFiles?.length && window.QuillFeatures?.restoreTabs) {
+        await window.QuillFeatures.restoreTabs(ws.openFiles, ws.activeFile);
+      }
+    })();
 
     window.QuillCowork?.init({
       activeWs: M.workspaces.agentPanelWs,

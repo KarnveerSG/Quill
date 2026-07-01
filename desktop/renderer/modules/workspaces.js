@@ -274,6 +274,10 @@ window.QuillModules = window.QuillModules || {};
     await window.QuillModules.editor.renderFileTree();
     updateTitlebar();
     window.QuillModules.editor.closeEditor();
+    const nextWs = activeWs();
+    if (nextWs?.openFiles?.length && window.QuillFeatures?.restoreTabs) {
+      await window.QuillFeatures.restoreTabs(nextWs.openFiles, nextWs.activeFile);
+    }
     window.QuillMultiAgent?.onWorkspaceChange?.();
   }
 

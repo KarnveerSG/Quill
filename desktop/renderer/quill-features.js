@@ -46,6 +46,16 @@ const QuillFeatures = (() => {
     }
   }
 
+  function persistOpenFiles() {
+    try {
+      const ws = deps?.activeWs?.();
+      if (!ws) return;
+      ws.openFiles = Array.from(openTabs.keys());
+      ws.activeFile = activeTabPath || null;
+      window.quill.saveState(deps.getState());
+    } catch (_) {}
+  }
+
   async function switchTab(filePath) {
     if (!deps) return;
     if (activeTabPath && deps.getEditor() && openTabs.has(activeTabPath)) {
@@ -53,6 +63,7 @@ const QuillFeatures = (() => {
     }
     activeTabPath = filePath;
     deps.setEditorPath(filePath);
+    persistOpenFiles();
     const tab = openTabs.get(filePath);
     if (!tab) return;
     await deps.ensureMonaco();
@@ -92,6 +103,7 @@ const QuillFeatures = (() => {
       activeTabPath = next || null;
     }
     renderTabs();
+    persistOpenFiles();
   }
 
   function markDirty() {
@@ -531,6 +543,18 @@ const QuillFeatures = (() => {
     syncWorkspace,
     getOpenTabs: () => openTabs,
     getActiveTab: () => activeTabPath,
+    getOpenPaths: () => Array.from(openTabs.keys()),
+    restoreTabs: async (paths, activePath) => {
+      for (const p of paths || []) {
+        try {
+          const res = await window.quill.readFile(p);
+          if (res.ok) openTabs.set(p, { content: res.content, dirty: false });
+        } catch (_) {}
+      }
+      if (activePath && openTabs.has(activePath)) await switchTab(activePath);
+      else if (openTabs.size) await switchTab(openTabs.keys().next().value);
+      renderTabs();
+    },
     showInlineDiffBar,
   };
 })();
