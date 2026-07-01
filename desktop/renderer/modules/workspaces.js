@@ -146,7 +146,8 @@ window.QuillModules = window.QuillModules || {};
       const gitLabel = git?.branch ? `${git.branch}${git.changes ? ` · ${git.changes}` : ""}` : "";
       const paneBadge = `${ws.paneIds?.length || 1}${folders > 1 ? ` · ${folders} folders` : ""}`;
       const dotClass = running ? "agent-running" : "agent-idle";
-      li.innerHTML = `<span class="ws-dot ${dotClass}"></span><span>${escHtml(ws.name)}</span><span class="ws-badge">${escHtml(gitLabel || paneBadge)}</span>`;
+      const badgeCls = git?.branch ? "ws-badge ws-branch-badge" : "ws-badge";
+      li.innerHTML = `<span class="ws-dot ${dotClass}"></span><span>${escHtml(ws.name)}</span><span class="${badgeCls}" data-ws-branch="${git?.branch ? "1" : ""}" title="${git?.branch ? "Click to switch branch" : ""}">${escHtml(gitLabel || paneBadge)}</span>`;
       const actions = document.createElement("div");
       actions.className = "ws-item-actions";
       if (window.QuillModules.terminals.isWorkspaceAgentRunning(ws)) {
@@ -167,7 +168,14 @@ window.QuillModules = window.QuillModules || {};
         actions.appendChild(start);
       }
       if (actions.childElementCount) li.appendChild(actions);
-      li.onclick = () => switchWorkspace(ws.id);
+      li.onclick = (e) => {
+        if (e.target?.dataset?.wsBranch === "1") {
+          e.stopPropagation();
+          void showBranchSwitcher(e, ws);
+          return;
+        }
+        switchWorkspace(ws.id);
+      };
       li.oncontextmenu = (e) => {
         e.preventDefault();
         showWsContextMenu(e, ws);
@@ -196,6 +204,41 @@ window.QuillModules = window.QuillModules || {};
     renderWorkspaces();
     await window.QuillModules.scm.refreshScmPanel();
     await window.QuillModules.scm.refreshBranchDropdown();
+  }
+
+  let branchMenuEl = null;
+  function hideBranchMenu() { branchMenuEl?.remove(); branchMenuEl = null; }
+  async function showBranchSwitcher(e, ws) {
+    hideBranchMenu();
+    if (!ws?.cwd) return;
+    const res = await window.quill.gitBranches(ws.cwd);
+    if (!res.ok || !res.branches?.length) { showToast(res.error || "No branches"); return; }
+    const menu = document.createElement("div");
+    menu.className = "ws-context-menu";
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    for (const b of res.branches) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = `${b.current ? "● " : "  "}${b.name}`;
+      btn.disabled = b.current;
+      btn.onclick = async () => {
+        hideBranchMenu();
+        const r = await window.quill.gitCheckout({ cwd: ws.cwd, branch: b.name });
+        if (!r.ok) { showToast(r.error || "Checkout failed"); return; }
+        await refreshGitInfo(ws);
+        showToast(`Switched ${ws.name} → ${b.name}`);
+      };
+      menu.appendChild(btn);
+    }
+    document.body.appendChild(menu);
+    branchMenuEl = menu;
+    const close = (ev) => {
+      if (menu.contains(ev.target)) return;
+      hideBranchMenu();
+      document.removeEventListener("click", close);
+    };
+    setTimeout(() => document.addEventListener("click", close), 0);
   }
 
   let wsContextMenuEl = null;

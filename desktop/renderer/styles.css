@@ -165,6 +165,9 @@ html, body {
 .spend-modal-body th, .spend-modal-body td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
 .spend-modal-body td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
+.ws-branch-badge { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 3px; }
+.ws-branch-badge:hover { color: var(--accent); }
+
 .side-panel {
   width: var(--side-width);
   flex-shrink: 0;
