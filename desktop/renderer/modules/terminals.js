@@ -370,6 +370,8 @@ window.QuillModules = window.QuillModules || {};
       mode: "agent",
       named: Boolean(ws.named),
       workspaceId: ws.id,
+      provider: meta.provider || "",
+      model: meta.model || "",
       cols: term.cols,
       rows: term.rows,
     });
@@ -547,6 +549,26 @@ window.QuillModules = window.QuillModules || {};
     dupBtn.onclick = () => { hidePaneContextMenu(); void duplicatePane(paneId); };
     menu.appendChild(dupBtn);
 
+    const providers = S().bootstrap?.providers || ["auto", "anthropic", "cursor", "local"];
+    const meta = S().state.panes[paneId] || {};
+    for (const p of providers) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = `Model · ${p}${meta.provider === p ? " ✓" : ""}`;
+      btn.onclick = async () => {
+        hidePaneContextMenu();
+        await setPaneProvider(paneId, p);
+      };
+      menu.appendChild(btn);
+    }
+    if (meta.provider) {
+      const clearBtn = document.createElement("button");
+      clearBtn.type = "button";
+      clearBtn.textContent = "Clear model override";
+      clearBtn.onclick = async () => { hidePaneContextMenu(); await setPaneProvider(paneId, ""); };
+      menu.appendChild(clearBtn);
+    }
+
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.className = "danger";
@@ -596,6 +618,28 @@ window.QuillModules = window.QuillModules || {};
 
   async function duplicatePane(paneId) {
     await addPane();
+  }
+
+  async function setPaneProvider(paneId, provider) {
+    if (!S().state.panes[paneId]) return;
+    S().state.panes[paneId].provider = provider || undefined;
+    window.QuillModules.workspaces.persist();
+    // reflect in pane header persona label
+    const paneEl = document.querySelector(`[data-pane-id="${paneId}"] .pane-persona`);
+    if (paneEl) {
+      const meta = S().state.panes[paneId];
+      paneEl.textContent = provider ? `${meta.persona} · ${provider}` : meta.persona;
+    }
+    // respawn PTY to apply
+    const inst = S().termInstances.get(paneId);
+    const ws = window.QuillModules.workspaces.activeWs();
+    if (inst?.ptyId) {
+      await window.quill.ptyKill(inst.ptyId);
+      inst.term.dispose();
+      S().termInstances.delete(paneId);
+    }
+    if (ws && !ws.agentStopped) await mountTerminal(paneId, ws);
+    showToast(provider ? `Pane using ${provider}` : "Pane using default provider");
   }
 
   window.QuillModules.terminals = {

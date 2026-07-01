@@ -428,6 +428,11 @@ function spawnTerm(id, opts) {
     PYTHONUNBUFFERED: "1",
     PYTHONIOENCODING: "utf-8",
   };
+  if (opts.provider) {
+    envObj.QUILL_PROVIDER_OVERRIDE = String(opts.provider);
+    envObj.QUILL_PROVIDER = String(opts.provider);
+  }
+  if (opts.model) envObj.QUILL_MODEL_OVERRIDE = String(opts.model);
   const cols = opts.cols || 120;
   const rows = opts.rows || 30;
 
