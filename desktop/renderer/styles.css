@@ -176,6 +176,18 @@ html, body {
 .debug-output-log .stderr { color: #ff8a80; }
 .dbg-bp { background: rgba(255, 90, 90, 0.6); width: 6px !important; margin-left: 4px !important; border-radius: 50%; }
 
+.handoff-badge {
+  margin-left: 6px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 0 6px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.handoff-badge:hover { background: var(--accent-purple); }
+
 .editor-split-row { display: flex; flex: 1; min-height: 0; }
 .editor-split-row > .editor-monaco { flex: 1; min-width: 0; }
 .editor-split-row > .editor-right { border-left: 1px solid var(--border); }

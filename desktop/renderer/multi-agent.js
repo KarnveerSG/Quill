@@ -164,6 +164,7 @@ const QuillMultiAgent = (() => {
 
     updatePaneStatusUI(paneId, inst);
     void ingestTaskMarkers(clean, inst.wsId);
+    parseHandoffMarkers(clean, inst.wsId);
   }
 
   function countRunningAgents() {
@@ -357,7 +358,111 @@ const QuillMultiAgent = (() => {
     const primary = ws.paneIds[0];
     if (targetPaneId === primary) return text;
     const persona = deps?.getPanePersona?.(targetPaneId) || "Agent";
-    return `/handoff ${persona}\n${text}`;
+    const fromPersona = deps?.getPanePersona?.(primary) || "User";
+    const id = `h${Date.now()}`;
+    // Record the handoff in the workspace inbox synchronously so target pane badges immediately.
+    try {
+      recordHandoff({
+        id, ts: Date.now(), wsId: ws.id,
+        from: fromPersona, to: persona,
+        fromPaneId: primary, toPaneId: targetPaneId,
+        payload: text,
+      });
+    } catch (_) {}
+    return `[QUILL:HANDOFF from=${fromPersona} to=${persona} id=${id}]\n/handoff ${persona}\n${text}`;
+  }
+
+  const inboxByWs = new Map(); // wsId -> [{id,ts,from,to,payload,read}]
+  function recordHandoff(evt) {
+    const list = inboxByWs.get(evt.wsId) || [];
+    list.push({ ...evt, read: false });
+    inboxByWs.set(evt.wsId, list.slice(-100));
+    // Append to disk
+    (async () => {
+      const ws = deps?.getState?.()?.workspaces?.find((w) => w.id === evt.wsId);
+      if (!ws?.cwd) return;
+      const path = `${ws.cwd.replace(/[/\\]+$/, "")}/.quill/handoffs.jsonl`;
+      try {
+        const cur = await window.quill.readFile?.(path);
+        const line = JSON.stringify(evt);
+        const next = (cur?.ok && cur.content ? cur.content.replace(/\n?$/, "\n") : "") + line + "\n";
+        await window.quill.writeFile?.({ filePath: path, content: next, cwd: ws.cwd });
+      } catch (_) {}
+    })();
+    updateHandoffBadges();
+  }
+
+  function parseHandoffMarkers(clean, defaultWsId) {
+    const re = /\[QUILL:HANDOFF\s+from=(\S+)\s+to=(\S+)\s+id=(\S+?)\]/g;
+    let m;
+    while ((m = re.exec(clean)) !== null) {
+      const [, from, to, id] = m;
+      const list = inboxByWs.get(defaultWsId) || [];
+      if (list.some((x) => x.id === id)) continue;
+      recordHandoff({ id, ts: Date.now(), wsId: defaultWsId, from, to, payload: "" });
+    }
+  }
+
+  function updateHandoffBadges() {
+    const state = deps?.getState?.();
+    if (!state) return;
+    for (const ws of state.workspaces || []) {
+      const list = inboxByWs.get(ws.id) || [];
+      const unread = list.filter((x) => !x.read);
+      for (const paneId of ws.paneIds || []) {
+        const persona = state.panes?.[paneId]?.persona;
+        const el = document.querySelector(`[data-pane-id="${paneId}"] .pane-header`);
+        if (!el) continue;
+        let badge = el.querySelector(".handoff-badge");
+        const count = unread.filter((x) => x.to === persona || x.toPaneId === paneId).length;
+        if (count > 0) {
+          if (!badge) {
+            badge = document.createElement("button");
+            badge.type = "button";
+            badge.className = "handoff-badge";
+            badge.title = "Open inbox";
+            badge.onclick = (e) => { e.stopPropagation(); openInbox(ws.id, paneId); };
+            el.appendChild(badge);
+          }
+          badge.textContent = `✉ ${count}`;
+        } else if (badge) {
+          badge.remove();
+        }
+      }
+    }
+  }
+
+  function openInbox(wsId, paneId) {
+    const modal = document.getElementById("handoff-modal");
+    const body = document.getElementById("handoff-modal-body");
+    if (!modal || !body) return;
+    const state = deps?.getState?.();
+    const ws = state?.workspaces?.find((w) => w.id === wsId);
+    const persona = state?.panes?.[paneId]?.persona || "";
+    const list = (inboxByWs.get(wsId) || []).filter((x) => !paneId || x.to === persona || x.toPaneId === paneId);
+    body.innerHTML = list.length
+      ? list.slice().reverse().map((it) => `<div class="skill-row" style="align-items:flex-start">
+          <div style="flex:1;min-width:0">
+            <div><strong>${esc(it.from)} → ${esc(it.to)}</strong>${it.read ? "" : " · <em>new</em>"}</div>
+            <div class="settings-sub">${new Date(it.ts).toLocaleString()}</div>
+            <div style="white-space:pre-wrap;margin-top:4px">${esc(it.payload || "(no payload)")}</div>
+          </div>
+        </div>`).join("")
+      : `<p class="settings-sub">Inbox empty for ${esc(persona || ws?.name || "this pane")}.</p>`;
+    // Mark read
+    for (const it of inboxByWs.get(wsId) || []) {
+      if (!paneId || it.to === persona || it.toPaneId === paneId) it.read = true;
+    }
+    modal.classList.remove("hidden");
+    updateHandoffBadges();
+  }
+
+  function bindHandoffInbox() {
+    document.getElementById("handoff-modal-close")?.addEventListener("click", () =>
+      document.getElementById("handoff-modal")?.classList.add("hidden"));
+    document.getElementById("handoff-modal")?.addEventListener("click", (e) => {
+      if (e.target?.id === "handoff-modal") e.currentTarget.classList.add("hidden");
+    });
   }
 
   function bindAgentsTray() {
@@ -393,6 +498,7 @@ const QuillMultiAgent = (() => {
     Object.assign(inst, defaultStatus());
     updatePaneStatusUI(paneId, inst);
     updateAgentsTrayBadge();
+    updateHandoffBadges();
   }
 
   function onPaneRemoved() {
@@ -411,6 +517,7 @@ const QuillMultiAgent = (() => {
     bindAgentsTray();
     bindProviderSwitcher();
     bindSpendChip();
+    bindHandoffInbox();
     updateAgentsTrayBadge();
     updateSpendChip();
     renderTaskBoard();
@@ -421,6 +528,8 @@ const QuillMultiAgent = (() => {
     parsePtyData,
     updateAgentsTrayBadge,
     formatComposerWrite,
+    openInbox,
+    updateHandoffBadges,
     onPaneMounted,
     onPaneRemoved,
     onWorkspaceChange,
