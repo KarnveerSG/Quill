@@ -352,7 +352,11 @@ window.QuillApp = window.QuillApp || {};
       window.QuillFeatures?.parseAgentStream(data);
       if (M.agentPanel.shouldStreamPtyToAgentChat()) M.agentPanel.appendAgentStream(data);
       const editMatch = data.match(/\[QUILL_EDIT:([^\]\r\n]+)\]/);
-      if (editMatch) void M.editor.onWorkspaceFileChanged(M.util.resolveWsPath(editMatch[1]));
+      if (editMatch) {
+        const resolved = M.util.resolveWsPath(editMatch[1]);
+        void M.editor.onWorkspaceFileChanged(resolved);
+        window.QuillFeatures?.enqueueAgentEdit?.(resolved);
+      }
     });
     window.quill.onPtyExit(({ id }) => {
       for (const [, t] of S().termInstances) {
