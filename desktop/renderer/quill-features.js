@@ -518,16 +518,77 @@ const QuillFeatures = (() => {
     if (ws?.named) { localStorage.setItem("quill-onboarded", "1"); return; }
     const modal = document.getElementById("onboarding");
     if (!modal) return;
+    const card = modal.querySelector(".onboarding-card");
+    if (!card) return;
     modal.classList.remove("hidden");
-    document.getElementById("onboard-open")?.addEventListener("click", async () => {
+
+    let step = 1;
+    let provider = "auto";
+    let key = "";
+
+    const done = () => {
       modal.classList.add("hidden");
       localStorage.setItem("quill-onboarded", "1");
-      await deps.openFolder();
-    });
-    document.getElementById("onboard-skip")?.addEventListener("click", () => {
-      modal.classList.add("hidden");
-      localStorage.setItem("quill-onboarded", "1");
-    });
+    };
+
+    async function paint() {
+      if (step === 1) {
+        card.innerHTML = `
+          <div class="empty-logo">Q</div>
+          <h2>Welcome to Quill</h2>
+          <p>Pick your primary AI provider.</p>
+          <div style="display:flex;flex-direction:column;gap:8px;margin:14px 0;text-align:left">
+            <label><input type="radio" name="ob-provider" value="auto" checked /> Auto (Cursor → Claude → local)</label>
+            <label><input type="radio" name="ob-provider" value="anthropic" /> Anthropic (Claude API key)</label>
+            <label><input type="radio" name="ob-provider" value="cursor" /> Cursor (Cursor API key)</label>
+            <label><input type="radio" name="ob-provider" value="local" /> Local LLM (LM Studio / Ollama)</label>
+          </div>
+          <button type="button" class="btn-primary" id="ob-next">Next</button>
+          <button type="button" class="btn-secondary" id="ob-skip">Skip setup</button>`;
+        card.querySelector("#ob-next").onclick = () => {
+          provider = card.querySelector('input[name="ob-provider"]:checked')?.value || "auto";
+          step = 2;
+          void paint();
+        };
+        card.querySelector("#ob-skip").onclick = done;
+        return;
+      }
+      if (step === 2) {
+        const needsKey = provider === "anthropic" || provider === "cursor";
+        const envKey = provider === "cursor" ? "CURSOR_API_KEY" : "ANTHROPIC_API_KEY";
+        card.innerHTML = `
+          <h2>${needsKey ? "Add API key" : "Confirm setup"}</h2>
+          ${needsKey
+            ? `<p>Paste your ${provider === "cursor" ? "Cursor" : "Anthropic"} key. Saved to <code>~/.quill/.env</code>.</p>
+               <input type="password" id="ob-key" placeholder="${provider === "cursor" ? "crsr_..." : "sk-ant-..."}" style="width:100%;padding:8px;margin:12px 0" />`
+            : `<p>Provider: <strong>${provider}</strong>. Nothing else needed — Quill will auto-detect a local LLM at startup.</p>`}
+          <button type="button" class="btn-primary" id="ob-next">Next</button>
+          <button type="button" class="btn-secondary" id="ob-back">Back</button>`;
+        card.querySelector("#ob-back").onclick = () => { step = 1; void paint(); };
+        card.querySelector("#ob-next").onclick = async () => {
+          if (needsKey) {
+            key = card.querySelector("#ob-key")?.value.trim() || "";
+            const updates = { QUILL_PROVIDER: provider };
+            if (key) updates[envKey] = key;
+            try { await window.quill.saveEnvKeys(updates); } catch (_) {}
+          } else {
+            try { await window.quill.setProvider(provider); } catch (_) {}
+          }
+          step = 3;
+          void paint();
+        };
+        return;
+      }
+      // step 3
+      card.innerHTML = `
+        <h2>Open a folder</h2>
+        <p>Point Quill at a project to start editing with the agent.</p>
+        <button type="button" class="btn-primary" id="ob-open">Open folder…</button>
+        <button type="button" class="btn-secondary" id="ob-finish">Finish (no folder)</button>`;
+      card.querySelector("#ob-open").onclick = async () => { done(); await deps.openFolder(); };
+      card.querySelector("#ob-finish").onclick = done;
+    }
+    void paint();
   }
 
   async function checkAutoUpdate() {
