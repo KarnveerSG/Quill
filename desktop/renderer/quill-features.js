@@ -271,6 +271,16 @@ const QuillFeatures = (() => {
     const list = document.getElementById("global-search-results");
     if (!modal || !input || !list) return;
     let timer = null;
+    let mode = "text";
+    const setMode = (m) => {
+      mode = m;
+      document.getElementById("gs-mode-text")?.classList.toggle("active", m === "text");
+      document.getElementById("gs-mode-semantic")?.classList.toggle("active", m === "semantic");
+      input.placeholder = m === "semantic" ? "Semantic query (BM25 ranking)…" : "Search content…";
+      if (input.value.trim().length >= 2) input.oninput?.();
+    };
+    document.getElementById("gs-mode-text")?.addEventListener("click", () => setMode("text"));
+    document.getElementById("gs-mode-semantic")?.addEventListener("click", () => setMode("semantic"));
     const open = () => {
       modal.classList.remove("hidden");
       input.value = "";
@@ -285,11 +295,17 @@ const QuillFeatures = (() => {
         const q = input.value.trim();
         if (q.length < 2) { list.innerHTML = ""; return; }
         const ws = deps.activeWs();
-        const res = await window.quill.searchContent({ cwd: ws?.cwd, query: q, limit: 60 });
-        list.innerHTML = (res.matches || []).map((m) =>
-          `<li data-path="${esc(m.path)}" data-line="${m.line}"><span class="gs-path">${esc(m.path.split(/[/\\]/).pop())}:${m.line}</span><span class="gs-text">${esc(m.text)}</span></li>`
-        ).join("");
-        list.querySelectorAll("li").forEach((li) => {
+        const res = mode === "semantic"
+          ? await window.quill.semanticSearch({ cwd: ws?.cwd, query: q, limit: 40 })
+          : await window.quill.searchContent({ cwd: ws?.cwd, query: q, limit: 60 });
+        list.innerHTML = (res.matches || []).map((m) => {
+          const score = m.score != null ? ` · ${m.score.toFixed(2)}` : "";
+          return `<li data-path="${esc(m.path)}" data-line="${m.line}"><span class="gs-path">${esc(m.path.split(/[/\\]/).pop())}:${m.line}${score}</span><span class="gs-text">${esc(m.text)}</span></li>`;
+        }).join("");
+        if (mode === "semantic" && res.indexed != null && !res.matches?.length) {
+          list.innerHTML = `<li class="settings-sub" style="padding:8px 12px">No hits across ${res.indexed} indexed file(s).</li>`;
+        }
+        list.querySelectorAll("li[data-path]").forEach((li) => {
           li.onclick = async () => {
             await openTab(li.dataset.path);
             close();

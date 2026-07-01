@@ -878,6 +878,118 @@ ipcMain.handle("check-for-updates", async () => {
   }
 });
 
+const SEMANTIC_INDEX = new Map(); // cwd -> { docs, df, avgdl, ts }
+const SEMANTIC_MAX_FILE_BYTES = 200 * 1024;
+const SEMANTIC_MAX_FILES = 2000;
+const SEMANTIC_TTL_MS = 5 * 60 * 1000;
+const SEMANTIC_SKIP = new Set(["node_modules", ".git", ".codegraph", "dist", "build", "__pycache__", ".venv", "venv", ".next"]);
+const SEMANTIC_EXT = new Set([
+  ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".py", ".go", ".rs", ".java",
+  ".rb", ".php", ".c", ".h", ".cpp", ".hpp", ".cs", ".swift", ".kt", ".scala",
+  ".md", ".mdx", ".txt", ".json", ".yaml", ".yml", ".toml", ".html", ".css", ".scss",
+]);
+
+function tokenize(text) {
+  return String(text || "")
+    .toLowerCase()
+    .split(/[^a-z0-9_]+/)
+    .filter((t) => t.length >= 2 && t.length <= 40);
+}
+
+function buildSemanticIndex(cwd) {
+  const cached = SEMANTIC_INDEX.get(cwd);
+  if (cached && Date.now() - cached.ts < SEMANTIC_TTL_MS) return cached;
+  const docs = [];
+  const df = new Map();
+  function walk(dir, depth) {
+    if (docs.length >= SEMANTIC_MAX_FILES || depth > 8) return;
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const d of entries) {
+      if (docs.length >= SEMANTIC_MAX_FILES) break;
+      if (d.name.startsWith(".") && d.name !== ".env.sample") continue;
+      if (SEMANTIC_SKIP.has(d.name)) continue;
+      const full = path.join(dir, d.name);
+      if (d.isDirectory()) { walk(full, depth + 1); continue; }
+      if (!d.isFile()) continue;
+      const ext = path.extname(d.name).toLowerCase();
+      if (!SEMANTIC_EXT.has(ext)) continue;
+      let stat;
+      try { stat = fs.statSync(full); } catch { continue; }
+      if (stat.size > SEMANTIC_MAX_FILE_BYTES) continue;
+      let text;
+      try { text = fs.readFileSync(full, "utf8"); } catch { continue; }
+      const tokens = tokenize(text);
+      if (!tokens.length) continue;
+      const tf = new Map();
+      for (const t of tokens) tf.set(t, (tf.get(t) || 0) + 1);
+      for (const t of tf.keys()) df.set(t, (df.get(t) || 0) + 1);
+      docs.push({ path: full, len: tokens.length, tf, raw: text });
+    }
+  }
+  walk(cwd, 0);
+  const avgdl = docs.reduce((a, d) => a + d.len, 0) / Math.max(docs.length, 1);
+  const entry = { docs, df, avgdl, ts: Date.now(), size: docs.length };
+  SEMANTIC_INDEX.set(cwd, entry);
+  return entry;
+}
+
+function bm25Score(doc, qTerms, df, N, avgdl) {
+  const k1 = 1.5;
+  const b = 0.75;
+  let score = 0;
+  for (const t of qTerms) {
+    const dft = df.get(t) || 0;
+    if (!dft) continue;
+    const idf = Math.log(1 + (N - dft + 0.5) / (dft + 0.5));
+    const tf = doc.tf.get(t) || 0;
+    if (!tf) continue;
+    const norm = 1 - b + b * (doc.len / (avgdl || 1));
+    score += idf * ((tf * (k1 + 1)) / (tf + k1 * norm));
+  }
+  return score;
+}
+
+function bestSnippet(raw, qTerms) {
+  const lines = raw.split(/\r?\n/);
+  let bestScore = 0;
+  let bestLine = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const low = lines[i].toLowerCase();
+    let s = 0;
+    for (const t of qTerms) if (low.includes(t)) s += 1;
+    if (s > bestScore) { bestScore = s; bestLine = i; }
+  }
+  return { line: bestLine + 1, text: lines[bestLine]?.trim().slice(0, 200) || "" };
+}
+
+ipcMain.handle("semantic-search", (_e, { cwd, query, limit }) => {
+  const root = resolveWorkspaceCwd(cwd);
+  const q = String(query || "").trim();
+  const max = Math.min(Number(limit) || 25, 100);
+  if (!q) return { ok: true, matches: [], indexed: 0 };
+  const qTerms = tokenize(q);
+  if (!qTerms.length) return { ok: true, matches: [], indexed: 0 };
+  const idx = buildSemanticIndex(root);
+  const N = idx.docs.length;
+  const scored = [];
+  for (const d of idx.docs) {
+    const s = bm25Score(d, qTerms, idx.df, N, idx.avgdl);
+    if (s > 0) scored.push({ doc: d, score: s });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const matches = scored.slice(0, max).map(({ doc, score }) => {
+    const snip = bestSnippet(doc.raw, qTerms);
+    return { path: doc.path, score, line: snip.line, text: snip.text };
+  });
+  return { ok: true, matches, indexed: N };
+});
+
+ipcMain.handle("semantic-index-clear", (_e, cwd) => {
+  SEMANTIC_INDEX.delete(resolveWorkspaceCwd(cwd));
+  return { ok: true };
+});
+
 ipcMain.handle("search-content", async (_e, { cwd, query, limit }) => {
   const root = resolveWorkspaceCwd(cwd);
   const q = String(query || "").trim();

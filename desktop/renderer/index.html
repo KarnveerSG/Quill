@@ -272,8 +272,16 @@
 
   <div id="global-search" class="global-search hidden">
     <div class="global-search-panel">
-      <header><span>Search in files</span><button type="button" id="global-search-close">×</button></header>
+      <header>
+        <span>Search in files</span>
+        <span style="display:flex;gap:6px;margin-left:auto">
+          <button type="button" class="editor-tab-btn active" id="gs-mode-text" data-mode="text">Text</button>
+          <button type="button" class="editor-tab-btn" id="gs-mode-semantic" data-mode="semantic">Semantic</button>
+          <button type="button" id="global-search-close">×</button>
+        </span>
+      </header>
       <input id="global-search-input" type="text" placeholder="Search content…" autocomplete="off" />
+      <p class="settings-sub" id="gs-mode-hint" style="margin:4px 12px 0">Text: literal git-grep. Semantic: BM25 ranking over indexed workspace files.</p>
       <ul id="global-search-results"></ul>
     </div>
   </div>

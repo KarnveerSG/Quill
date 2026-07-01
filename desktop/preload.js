@@ -58,4 +58,6 @@ contextBridge.exposeInMainWorld("quill", {
   historySave: (opts) => ipcRenderer.invoke("history-save", opts),
   historyLoad: (opts) => ipcRenderer.invoke("history-load", opts),
   historyDelete: (opts) => ipcRenderer.invoke("history-delete", opts),
+  semanticSearch: (opts) => ipcRenderer.invoke("semantic-search", opts),
+  semanticIndexClear: (cwd) => ipcRenderer.invoke("semantic-index-clear", cwd),
 });
