@@ -17,6 +17,7 @@
           <button type="button" data-action="open-workspace">Open Workspace…</button>
           <button type="button" data-action="open-folder">Open Folder…</button>
           <button type="button" data-action="add-folder">Add Folder to Workspace…</button>
+          <button type="button" data-action="reopen-recent">Reopen Recent…</button>
           <button type="button" data-action="sync-export">Sync workspace</button>
           <button type="button" data-action="sync-import">Import sync</button>
           <hr />
@@ -224,6 +225,13 @@
   <div id="palette" class="palette hidden">
     <input id="palette-input" type="text" placeholder="> commands  @ files  # workspaces  :line" autocomplete="off" />
     <ul id="palette-list"></ul>
+  </div>
+
+  <div id="recent-modal" class="global-search hidden">
+    <div class="global-search-panel">
+      <header><span>Recent workspaces</span><button type="button" id="recent-modal-close">×</button></header>
+      <div id="recent-modal-body" class="spend-modal-body"></div>
+    </div>
   </div>
 
   <div id="history-modal" class="global-search hidden">

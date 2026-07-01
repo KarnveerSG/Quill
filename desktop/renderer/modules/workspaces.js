@@ -334,6 +334,7 @@ window.QuillModules = window.QuillModules || {};
       if (!ws.folders) ws.folders = [];
       if (!ws.folders.includes(folder)) ws.folders.unshift(folder);
       ws.name = folder.split(/[/\\]/).pop() || ws.name;
+      pushRecent(folder);
       persist();
       renderWorkspaces();
       await refreshGitInfo();
@@ -484,6 +485,51 @@ window.QuillModules = window.QuillModules || {};
     showToast(`Workspace folder: ${ws.name}`);
   }
 
+  function pushRecent(folderPath) {
+    if (!folderPath) return;
+    if (!Array.isArray(S().state.recentFolders)) S().state.recentFolders = [];
+    const list = S().state.recentFolders.filter((p) => !pathsEqual(p, folderPath));
+    list.unshift(folderPath);
+    S().state.recentFolders = list.slice(0, 8);
+    persist();
+  }
+
+  function openRecentModal() {
+    const modal = document.getElementById("recent-modal");
+    const body = document.getElementById("recent-modal-body");
+    if (!modal || !body) return;
+    const recents = S().state.recentFolders || [];
+    body.innerHTML = recents.length
+      ? recents.map((p) => `
+        <div class="skill-row">
+          <div style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><strong>${escHtml(p.split(/[/\\]/).pop() || p)}</strong><div class="settings-sub">${escHtml(p)}</div></div>
+          <button type="button" class="btn-secondary" data-recent-open="${escHtml(p)}">Open</button>
+          <button type="button" class="btn-secondary" data-recent-del="${escHtml(p)}">×</button>
+        </div>`).join("")
+      : `<p class="settings-sub">No recent folders yet.</p>`;
+    modal.classList.remove("hidden");
+    body.querySelectorAll("[data-recent-open]").forEach((btn) => {
+      btn.onclick = async () => {
+        modal.classList.add("hidden");
+        await addWorkspaceFromPath(btn.dataset.recentOpen);
+      };
+    });
+    body.querySelectorAll("[data-recent-del]").forEach((btn) => {
+      btn.onclick = () => {
+        S().state.recentFolders = (S().state.recentFolders || []).filter((p) => !pathsEqual(p, btn.dataset.recentDel));
+        persist();
+        openRecentModal();
+      };
+    });
+  }
+
+  function bindRecentModal() {
+    document.getElementById("recent-modal-close")?.addEventListener("click", () => document.getElementById("recent-modal")?.classList.add("hidden"));
+    document.getElementById("recent-modal")?.addEventListener("click", (e) => {
+      if (e.target?.id === "recent-modal") e.currentTarget.classList.add("hidden");
+    });
+  }
+
   async function addWorkspaceFromPath(folderPath) {
     if (!folderPath) return;
     const stat = await window.quill.statPath?.(folderPath);
@@ -501,6 +547,7 @@ window.QuillModules = window.QuillModules || {};
       paneIds: [paneId], named: true, openFiles: [],
     });
     S().state.panes[paneId] = { persona: pickUnusedPersonaFromUsed(new Set()), mode: "agent" };
+    pushRecent(folderPath);
     persist();
     await switchWorkspace(id);
     showToast(`Added workspace: ${name}`);
@@ -592,6 +639,8 @@ window.QuillModules = window.QuillModules || {};
     addWorkspace,
     addWorkspaceFromPath,
     bindWorkspaceDrop,
+    openRecentModal,
+    bindRecentModal,
     exportWorkspaceSync,
     importWorkspaceSync,
   };

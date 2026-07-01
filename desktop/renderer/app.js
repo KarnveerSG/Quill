@@ -67,6 +67,7 @@ window.QuillApp = window.QuillApp || {};
       "open-workspace": M.workspaces.openWorkspaceFile,
       "open-folder": M.workspaces.openFolder,
       "add-folder": M.workspaces.addFolderToWorkspace,
+      "reopen-recent": M.workspaces.openRecentModal,
       "sync-export": M.workspaces.exportWorkspaceSync,
       "sync-import": M.workspaces.importWorkspaceSync,
       settings: () => M.settings.openSettings("appearance"),
@@ -255,6 +256,7 @@ window.QuillApp = window.QuillApp || {};
     bindActivityBar();
     bindPanelGutters();
     M.workspaces.bindWorkspaceDrop();
+    M.workspaces.bindRecentModal();
     bindSideSearch();
     M.agentPanel.setAgentPanelMode(S().state.agentPanelMode || "open", { persist: false });
     void M.editor.ensureMonaco();
