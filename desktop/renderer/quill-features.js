@@ -391,6 +391,18 @@ const QuillFeatures = (() => {
     map[action]?.();
   }
 
+  function comboFromEvent(e) {
+    const parts = [];
+    if (e.ctrlKey || e.metaKey) parts.push("ctrl");
+    if (e.shiftKey) parts.push("shift");
+    if (e.altKey) parts.push("alt");
+    let key = e.key.toLowerCase();
+    if (["control", "shift", "alt", "meta"].includes(key)) return null;
+    if (key === " ") key = "space";
+    parts.push(key);
+    return parts.join("+");
+  }
+
   async function renderKeybindingsSettings(container) {
     const defaults = [
       { combo: "ctrl+p", action: "open-palette", label: "Command palette" },
@@ -399,26 +411,66 @@ const QuillFeatures = (() => {
       { combo: "ctrl+l", action: "focus-agent", label: "Focus agent" },
       { combo: "ctrl+s", action: "save-file", label: "Save file" },
     ];
-    const merged = { ...Object.fromEntries(defaults.map((d) => [d.combo, d.action])), ...customKeybindings };
+    // customKeybindings is { combo: action } — invert to { action: combo }
+    const actionToCombo = {};
+    for (const [c, a] of Object.entries(customKeybindings)) actionToCombo[a] = c;
+
     container.innerHTML = `<div class="settings-page"><h3>Keyboard shortcuts</h3>
-      <p class="settings-sub">Overrides saved to <code>~/.quill/keybindings.json</code></p>
+      <p class="settings-sub">Click Record then press a key combination. Overrides saved to <code>~/.quill/keybindings.json</code>.</p>
       <div id="kb-list"></div>
-      <button type="button" class="btn-primary" id="kb-save">Save overrides</button></div>`;
+      <div style="margin-top:12px"><button type="button" class="btn-primary" id="kb-save">Save overrides</button>
+      <button type="button" class="btn-secondary" id="kb-reset" style="margin-left:8px">Reset to defaults</button></div>
+    </div>`;
     const list = container.querySelector("#kb-list");
-    list.innerHTML = defaults.map((d) => {
-      const val = merged[d.combo] || d.action;
-      return `<label class="field-row"><span>${esc(d.label)}</span>
-        <input type="text" data-kb-combo="${esc(d.combo)}" value="${esc(val)}" /></label>`;
-    }).join("");
+    const state = defaults.map((d) => ({ ...d, current: actionToCombo[d.action] || d.combo }));
+
+    function paint() {
+      list.innerHTML = state.map((d, i) => `
+        <div class="field-row">
+          <span>${esc(d.label)}</span>
+          <span style="display:flex;gap:8px;align-items:center">
+            <code data-kb-current="${i}" style="padding:2px 6px;border:1px solid var(--border);border-radius:3px;min-width:110px;display:inline-block;text-align:center">${esc(d.current)}</code>
+            <button type="button" class="btn-secondary" data-kb-record="${i}">Record</button>
+            <button type="button" class="btn-secondary" data-kb-clear="${i}" title="Restore default">↺</button>
+          </span>
+        </div>`).join("");
+      list.querySelectorAll("[data-kb-record]").forEach((btn) => {
+        btn.onclick = () => {
+          const i = Number(btn.dataset.kbRecord);
+          btn.textContent = "Press keys…";
+          const handler = (ev) => {
+            const combo = comboFromEvent(ev);
+            if (!combo) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            state[i].current = combo;
+            document.removeEventListener("keydown", handler, true);
+            paint();
+          };
+          document.addEventListener("keydown", handler, true);
+        };
+      });
+      list.querySelectorAll("[data-kb-clear]").forEach((btn) => {
+        btn.onclick = () => { const i = Number(btn.dataset.kbClear); state[i].current = state[i].combo; paint(); };
+      });
+    }
+    paint();
+
     container.querySelector("#kb-save").onclick = async () => {
       const bindings = {};
-      list.querySelectorAll("[data-kb-combo]").forEach((inp) => {
-        const def = defaults.find((d) => d.combo === inp.dataset.kbCombo)?.action;
-        if (inp.value.trim() && inp.value.trim() !== def) bindings[inp.dataset.kbCombo] = inp.value.trim();
-      });
+      for (const d of state) {
+        if (d.current && d.current !== d.combo) bindings[d.current] = d.action;
+      }
       await window.quill.saveKeybindings(bindings);
       customKeybindings = bindings;
-      deps.showToast("Keybindings saved");
+      deps.showToast("Keybindings saved (restart may be needed for defaults to yield)");
+    };
+    container.querySelector("#kb-reset").onclick = async () => {
+      await window.quill.saveKeybindings({});
+      customKeybindings = {};
+      for (const d of state) d.current = d.combo;
+      paint();
+      deps.showToast("Keybindings reset");
     };
   }
 
